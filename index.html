@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#f8f5ed">
+  <title>Мои рецепты</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍲</text></svg>">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Кулинарная книга</p>
+        <h1>Мои рецепты</h1>
+      </div>
+      <button class="btn btn-primary" id="add-btn" type="button"><span aria-hidden="true">＋</span> Добавить рецепт</button>
+    </header>
+
+    <main>
+      <!-- Рецепты -->
+      <section class="view" id="view-recipes" aria-labelledby="tab-recipes">
+        <div class="search">
+          <label class="field-icon"><span class="sr-only">Поиск по названию</span>
+            <input type="search" id="q-title" placeholder="Поиск по названию" autocomplete="off">
+          </label>
+          <label class="field-icon"><span class="sr-only">Поиск по ингредиентам</span>
+            <input type="search" id="q-ing" placeholder="Поиск по ингредиентам: яйца, мука" autocomplete="off">
+          </label>
+        </div>
+        <div class="chips" id="chips" role="toolbar" aria-label="Фильтр по категориям"></div>
+        <p class="count" id="count" aria-live="polite"></p>
+        <div class="grid" id="grid"></div>
+        <div class="empty" id="empty" hidden>
+          <div class="empty-icon" aria-hidden="true">🍲</div>
+          <h2>Здесь пока пусто</h2>
+          <p>Добавьте первый рецепт вручную, по фото, из текста или файла. Можно просто перетащить файл в окно.</p>
+          <button class="btn btn-primary" type="button" data-action="add">Добавить рецепт</button>
+        </div>
+      </section>
+
+      <!-- Меню -->
+      <section class="view" id="view-menu" hidden aria-labelledby="tab-menu">
+        <div class="section-head">
+          <h2>Меню</h2>
+          <button class="btn btn-ghost" id="clear-menu" type="button">Очистить меню</button>
+        </div>
+        <div id="menu-list" class="menu-list"></div>
+        <h3 class="sub">Список покупок</h3>
+        <ul id="shopping" class="shopping"></ul>
+        <p class="hint" id="menu-empty">Откройте рецепт и нажмите «В меню», чтобы собрать список покупок.</p>
+      </section>
+
+      <!-- Копии -->
+      <section class="view" id="view-backup" hidden aria-labelledby="tab-backup">
+        <h2>Резервные копии</h2>
+        <p class="hint">Рецепты хранятся только в этом браузере. Сохраняйте копию, чтобы не потерять их и перенести на другое устройство.</p>
+        <div class="cards-col">
+          <div class="panel">
+            <h3>Сохранить копию</h3>
+            <p class="hint" id="backup-stats"></p>
+            <button class="btn btn-primary" id="export-btn" type="button">⇩ Скачать файл копии</button>
+          </div>
+          <div class="panel">
+            <h3>Восстановить из копии</h3>
+            <p class="hint">Рецепты из файла добавятся к текущим, повторы можно будет пропустить.</p>
+            <button class="btn" id="restore-btn" type="button">⇧ Выбрать файл .json</button>
+          </div>
+          <div class="panel danger">
+            <h3>Очистить книгу</h3>
+            <p class="hint">Удалит все рецепты из этого браузера.</p>
+            <button class="btn btn-danger" id="wipe-btn" type="button">Удалить все рецепты</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tabs" role="tablist" aria-label="Разделы">
+      <button role="tab" id="tab-recipes" data-view="recipes" aria-selected="true"><span aria-hidden="true">▦</span>Рецепты</button>
+      <button role="tab" id="tab-menu" data-view="menu" aria-selected="false"><span aria-hidden="true">☷</span>Меню<b class="badge" id="menu-badge" hidden></b></button>
+      <button role="tab" id="tab-backup" data-view="backup" aria-selected="false"><span aria-hidden="true">⇩</span>Копии</button>
+    </nav>
+  </div>
+
+  <!-- Добавление: выбор способа → ввод → проверка -->
+  <dialog id="import-dlg" class="sheet" aria-labelledby="import-title">
+    <form method="dialog" class="sheet-inner" novalidate>
+      <header class="sheet-head">
+        <div>
+          <p class="eyebrow" id="import-eyebrow">Новый рецепт</p>
+          <h2 id="import-title">Как добавить?</h2>
+        </div>
+        <button class="icon-btn" value="close" aria-label="Закрыть">×</button>
+      </header>
+      <div class="sheet-body" id="import-body"></div>
+      <footer class="sheet-foot" id="import-foot"></footer>
+    </form>
+  </dialog>
+
+  <!-- Просмотр рецепта -->
+  <dialog id="view-dlg" class="sheet" aria-labelledby="view-title">
+    <div class="sheet-inner">
+      <header class="sheet-head">
+        <div><p class="eyebrow" id="view-cat"></p><h2 id="view-title"></h2></div>
+        <button class="icon-btn" type="button" data-close aria-label="Закрыть">×</button>
+      </header>
+      <div class="sheet-body" id="view-body"></div>
+      <footer class="sheet-foot" id="view-foot"></footer>
+    </div>
+  </dialog>
+
+  <div class="drop-overlay" id="drop-overlay" hidden><div>Отпустите файлы, чтобы добавить рецепты</div></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <input type="file" id="file-input" hidden multiple>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+:root{color-scheme:light;--paper:#f8f5ed;--card:#fffdf7;--ink:#242c21;--green:#2c543d;--green-soft:#e9ece1;--line:#dedbce;--muted:#657064;font-family:system-ui,-apple-system,sans-serif;background:var(--paper);color:var(--ink)}
+*{box-sizing:border-box}
+body{margin:0}
+main{max-width:48rem;margin:auto;padding:max(24px,env(safe-area-inset-top)) 18px calc(104px + env(safe-area-inset-bottom))}
+header{margin:8px 0 18px}
+.eyebrow{letter-spacing:.16em;color:var(--muted);font-size:.73rem;font-weight:700}
+h1,h2{font-family:Georgia,serif;font-weight:500;overflow-wrap:anywhere}
+h1{font-size:clamp(2.35rem,10vw,4rem);line-height:1;margin:0}
+h2{font-size:1.8rem;margin:.45em 0}
+h3{margin:1.4em 0 .5em}
+button,input,textarea{font:inherit}
+button{min-height:44px;border:0;border-radius:12px;padding:8px 13px;background:var(--green);color:white;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+button.quiet{background:var(--green-soft);color:var(--green)}
+button.danger{color:#8b322c}
+#recipes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+#recipes>.empty{grid-column:1/-1}
+.tile{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;align-items:stretch;text-align:left;gap:0;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:18px;padding:0;overflow:hidden;overflow-wrap:anywhere;box-shadow:0 5px 16px rgb(44 84 61/.06)}
+.tile-open{display:flex;width:100%;height:100%;min-height:0;flex-direction:column;align-items:stretch;border-radius:0;padding:0;background:transparent;color:var(--ink);text-align:left}
+.tile-media{display:grid;place-items:center;width:100%;aspect-ratio:4/3;background:linear-gradient(145deg,#dfe7d8,#f3e6cf);overflow:hidden}
+.tile-media img{width:100%;height:100%;object-fit:cover}
+.tile-placeholder{font-family:Georgia,serif;font-size:2.15rem;color:var(--green);opacity:.65}
+.tile-content{display:flex;flex:1;flex-direction:column;align-items:flex-start;padding:11px 12px 12px}
+.tile-content strong{font-family:Georgia,serif;font-size:1.06rem;line-height:1.15}
+.tile-meta{display:block;margin-top:7px;color:var(--muted);font-size:.76rem;font-weight:500}
+.empty,#card,form{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
+#card{margin:12px 0}
+.recipe-hero{position:relative;display:grid;width:calc(100% + 32px);min-height:210px;aspect-ratio:16/10;margin:-16px -16px 18px;place-items:center;overflow:hidden;border-radius:18px 18px 0 0;background:linear-gradient(145deg,#dfe7d8,#f3e6cf)}
+.photo-open{width:100%;height:100%;min-height:0;padding:0;border-radius:0;background:transparent}
+.photo-open img{display:block;width:100%;height:100%;object-fit:cover}
+.detail-placeholder{font-family:Georgia,serif;font-size:4rem;color:var(--green);opacity:.55}
+.favorite-button{position:absolute;z-index:2;top:10px;right:10px;display:grid;width:42px;height:42px;min-height:42px;place-items:center;padding:0;border:1px solid rgb(255 255 255/.78);border-radius:50%;background:rgb(255 253 247/.9);color:#a83d3d;font-size:1.55rem;line-height:1;box-shadow:0 4px 14px rgb(20 28 22/.17);backdrop-filter:blur(8px)}
+.favorite-button[aria-pressed=true]{background:#fff3ef;color:#b33131}
+label{display:block;font-size:.85rem;font-weight:600;min-width:0}
+input:not([type=checkbox]),textarea{display:block;width:100%;min-height:44px;border:1px solid var(--line);border-radius:8px;background:white;padding:8px;margin-top:4px;color:var(--ink);font-size:16px}
+.toggle-field{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#f3f1e8}
+.toggle-field input{width:22px;height:22px;flex:none;margin:0;accent-color:var(--green)}
+.toggle-field span{display:grid;gap:2px}
+.toggle-field small{color:var(--muted);font-size:.76rem;font-weight:500}
+form>label,fieldset,.columns{margin:0 0 14px}
+fieldset{min-width:0;padding:10px;border:1px solid var(--line);border-radius:10px}
+legend{font-weight:650}
+.columns,.ingredient{display:grid;gap:7px}
+.columns{grid-template-columns:1fr 1fr}
+.ingredient{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 36px;align-items:end;margin:0 0 8px}
+.ingredient button{padding:0}
+.actions,.counter{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.collection-toolbar{display:flex;justify-content:flex-end;margin:4px 0 16px}
+#add-trigger{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;min-height:50px;border-radius:15px;font-size:1rem;box-shadow:0 7px 18px rgb(44 84 61/.16)}
+.counter input{width:6rem;margin:0}
+.counter label{flex:1;min-width:75px}
+.steps{white-space:pre-wrap;overflow-wrap:anywhere}
+#status{padding:12px;background:#f4e5c9;border-radius:10px}
+[hidden]{display:none!important}
+select{font:inherit;font-size:16px;display:block;width:100%;min-height:44px;border:1px solid var(--line);border-radius:8px;background:white;padding:8px;margin-top:4px;color:var(--ink)}
+#menu-panel{margin-top:18px}
+.section-intro{margin:-3px 0 18px;color:var(--muted);font-size:.96rem}
+#menu-dishes{list-style:none;padding:0;display:grid;gap:8px}
+.menu-dish{display:grid;grid-template-columns:1fr 72px 44px;gap:8px;align-items:end;border-bottom:1px solid var(--line);padding:0 0 8px;overflow-wrap:anywhere}
+.menu-add-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,8rem);gap:8px;margin-bottom:14px;align-items:end}
+.shopping-panel{margin:16px 0;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:18px}
+.shopping-panel h3{margin:0 0 8px}
+.shopping-hint,#shopping-progress{font-size:.9rem;color:var(--muted)}
+#shopping-list{list-style:none;margin:10px 0;padding:0}
+#shopping-list label{display:flex;align-items:center;gap:10px;min-height:44px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#shopping-list input{width:20px;height:20px;flex:none;accent-color:var(--green)}
+#shopping-list input:checked + span{text-decoration:line-through;color:var(--muted)}
+.recipe-search{margin-top:12px}
+.category-filters{display:flex;gap:8px;margin:14px -18px 0;padding:0 18px 4px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.category-filters::-webkit-scrollbar{display:none}
+.category-filter{flex:none;min-height:38px;border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:var(--card);color:var(--green);font-weight:650;white-space:nowrap}
+.category-filter[aria-pressed=true]{border-color:var(--green);background:var(--green);color:white}
+.category-label{display:inline-block;margin-top:auto;padding-top:8px;color:var(--green);font-size:.72rem;font-weight:750}
+.category-badge{display:inline-block;margin:0 0 8px;padding:5px 9px;border-radius:999px;background:var(--green-soft);color:var(--green);font-size:.82rem;font-weight:700}
+.difficulty-label{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;font-size:.67rem;font-weight:750}
+.recipe-badges{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.recipe-badges .category-badge{margin:0}
+.difficulty-badge{display:inline-block;padding:5px 9px;border-radius:999px;font-size:.82rem;font-weight:700}
+.difficulty-easy{background:#e4f1e5;color:#28633b}
+.difficulty-medium{background:#f7ebcb;color:#7a5917}
+.difficulty-hard{background:#f5ded8;color:#8b342c}
+.prep-label{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;background:#e1edf3;color:#285a70;font-size:.67rem;font-weight:750}
+.prep-badge{display:inline-block;padding:5px 9px;border-radius:999px;background:#e1edf3;color:#285a70;font-size:.82rem;font-weight:700}
+#recipe-search-status{font-size:.9rem;color:var(--muted);margin:8px 0 0}
+#recipe-search-status:empty{margin:0}
+.tabbar{position:fixed;z-index:20;left:50%;bottom:0;display:grid;grid-template-columns:repeat(3,1fr);width:min(100%,48rem);transform:translateX(-50%);padding:8px 22px calc(8px + env(safe-area-inset-bottom));background:rgb(255 253 247/.95);border-top:1px solid var(--line);box-shadow:0 -7px 24px rgb(36 44 33/.08);backdrop-filter:blur(14px)}
+.tabbar-item{display:flex;min-height:50px;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:14px;background:transparent;color:var(--muted);font-size:.76rem;padding:4px}
+.tabbar-item span{font-size:1.35rem;line-height:1}
+.tabbar-item[aria-current=page]{background:var(--green-soft);color:var(--green)}
+.add-dialog{width:100%;max-width:48rem;margin:auto 0 0;border:0;padding:0;background:transparent;color:var(--ink)}
+.add-dialog::backdrop{background:rgb(20 28 22/.42);backdrop-filter:blur(2px)}
+.add-sheet{border-radius:24px 24px 0 0;padding:8px 18px calc(22px + env(safe-area-inset-bottom));background:var(--paper);box-shadow:0 -12px 40px rgb(20 28 22/.22)}
+.sheet-handle{width:42px;height:5px;margin:2px auto 15px;border-radius:999px;background:#c7cabf}
+.sheet-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.sheet-heading .eyebrow{margin:2px 0 4px}
+.sheet-heading h2{margin:0 0 14px}
+.icon-button{width:44px;flex:none;padding:0;border-radius:50%;font-size:1.5rem}
+.add-options{display:grid;gap:9px}
+.add-option{display:flex;align-items:center;gap:13px;width:100%;min-height:67px;padding:10px 12px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);text-align:left}
+.add-option-icon{display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:13px;background:var(--green-soft);color:var(--green);font-size:1.25rem}
+.add-option>span:last-child{display:grid;gap:3px}
+.add-option strong{font-size:1rem}
+.add-option small{color:var(--muted);font-size:.78rem;font-weight:500}
+.comments-panel{margin-top:26px;padding-top:3px;border-top:1px solid var(--line)}
+.comments-panel h3{margin-bottom:5px}
+.comments-hint,.comments-empty{margin:0 0 12px;color:var(--muted);font-size:.88rem;line-height:1.4}
+.comments-list{display:grid;gap:9px;margin:12px 0}
+.comment{padding:12px;border-radius:13px;background:#f3f1e8}
+.comment p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.comment-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:7px}
+.comment time{color:var(--muted);font-size:.75rem}
+.comment-remove{min-height:32px;padding:3px 7px;background:transparent;color:#8b322c;font-size:.75rem}
+.comment-form{display:grid;gap:9px;margin-top:12px;padding:0;border:0;background:transparent}
+.comment-form textarea{margin:0;resize:vertical}
+.comment-form button{justify-self:start}
+.photo-dialog{width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:0;background:#111;color:white}
+.photo-dialog::backdrop{background:#111}
+.photo-dialog img{display:block;width:100%;height:100%;object-fit:contain}
+.photo-close{position:fixed;z-index:2;top:max(14px,env(safe-area-inset-top));right:14px;display:grid;width:46px;height:46px;min-height:46px;place-items:center;padding:0;border-radius:50%;background:rgb(20 20 20/.68);color:white;font-size:1.7rem;backdrop-filter:blur(8px)}
+@media(min-width:620px){#recipes{grid-template-columns:repeat(3,minmax(0,1fr))}.add-options{grid-template-columns:1fr 1fr}}
+.tile{aspect-ratio:3/4;isolation:isolate}
+.tile-open{position:relative;overflow:hidden;min-height:240px}
+.tile-media{position:absolute;inset:0;height:100%;aspect-ratio:auto}
+.tile-media img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover}
+.tile-content{position:relative;z-index:1;flex:0 0 auto;margin-top:auto;width:100%;padding:55px 12px 14px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:white}
+.tile-meta,.tile-content .category-label{color:#fff}
+.tile-content strong{font-size:1.12rem}
+.tile .favorite-button{top:9px;right:9px;z-index:3}
+.backup-panel{margin-top:24px;padding:16px;border:1px solid var(--line);border-radius:16px}
+.backup-panel button,.backup-panel a{display:inline-block;margin:8px 8px 8px 0}
+
+#pdf-drafts details{padding:16px;margin:12px 0;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+#pdf-drafts summary{cursor:pointer;font-weight:700}#pdf-drafts input[type=checkbox]{width:auto;margin-right:10px}#pdf-drafts textarea{font-size:16px}#pdf-file-name{overflow-wrap:anywhere}

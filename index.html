@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f5ed">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Мои рецепты</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css?v=17">
+<script defer src="app.js?v=15"></script>
+<script defer src="import.js?v=23"></script>
+<script defer src="menu.js?v=10"></script>
+<script defer src="pdf-import.js?v=1"></script>
+  <script defer src="backup.js?v=1"></script>
+</head>
+<body>
+<main>
+<header id="app-header"><p class="eyebrow">КУЛИНАРНАЯ КНИГА</p><h1 id="app-title">Мои рецепты</h1></header>
+<p id="status" role="status" hidden></p>
+<section id="collection">
+<div class="collection-toolbar">
+<button id="add-trigger" type="button" disabled><span aria-hidden="true">＋</span> Добавить рецепт</button>
+</div>
+<label class="recipe-search" for="title-search">Поиск по названию
+<input id="title-search" type="search" placeholder="Например, чизкейк" autocomplete="off" disabled>
+</label>
+<label class="recipe-search" for="ingredient-search">Поиск по ингредиентам
+<input id="ingredient-search" type="search" placeholder="Например, творог" autocomplete="off" disabled>
+</label>
+<nav id="category-filters" class="category-filters" aria-label="Разделы рецептов"></nav>
+<p id="recipe-search-status" role="status"></p>
+<div id="recipes"></div>
+
+</section>
+<section id="detail" hidden>
+<button class="quiet" id="back">← Все рецепты</button>
+<article id="card"></article>
+<div class="actions"><button id="edit">Редактировать</button><button id="remove" class="quiet danger">Удалить</button></div>
+</section>
+<section id="editor" hidden>
+<form id="form">
+<p id="import-note" class="empty" hidden>Проверь черновик рецепта. Уточни поля, которые приложение не смогло распознать.</p>
+<details id="import-source" hidden><summary>Исходный текст</summary><p class="steps" id="import-source-text"></p></details>
+<h2 id="form-title">Новый рецепт</h2>
+<label>Название<input name="title" required maxlength="160"></label>
+<div class="columns">
+<label>Раздел<select name="category" required></select></label>
+<label>Сложность<select name="difficulty"></select></label>
+</div>
+<label class="toggle-field"><input name="isPrep" type="checkbox"><span><strong>Заготовка</strong><small>Можно приготовить заранее или заморозить</small></span></label>
+<label>Фото <input name="photo" type="file" accept="image/*"></label>
+<label id="clear-photo" hidden><input type="checkbox" name="clearPhoto"> Удалить сохранённое фото</label>
+<div class="columns">
+<label>Время, мин<input name="minutes" type="number" min="1" step="1" inputmode="numeric"></label>
+<label>Исходное число порций<input name="servings" type="number" required min="1" max="999" value="4" inputmode="numeric"></label>
+</div>
+<fieldset><legend>Ингредиенты</legend>
+<div id="ingredients"></div>
+<button id="add-ingredient" type="button" class="quiet">＋ Ингредиент</button>
+</fieldset>
+<label>Инструкция<textarea name="instructions" rows="6" required placeholder="Опиши шаги приготовления"></textarea></label>
+<div class="actions"><button type="submit">Сохранить</button><button id="cancel" type="button" class="quiet">Отмена</button></div>
+</form>
+</section>
+<section id="importer" hidden>
+<button class="quiet" id="import-back">← Все рецепты</button>
+<h2 id="import-title">Добавление рецепта</h2>
+<form id="import-form">
+<label id="import-text-field" hidden>Текст рецепта<textarea id="import-text" rows="8" placeholder="Вставь название, ингредиенты и шаги" disabled></textarea></label>
+<label id="import-photo-field" hidden>Фото или снимок экрана<input id="import-photo" type="file" accept="image/*" disabled></label>
+<label id="import-file-field" hidden>PDF, текстовый файл или сборник JSON<input id="import-file" type="file" accept=".pdf,.txt,.json,application/pdf,text/plain,application/json" disabled></label>
+<div id="pdf-range" hidden><p>Для PDF можно выбрать страницы. Пустое поле «До» означает конец книги.</p><div class="columns"><label>Со страницы<input id="pdf-first" type="number" min="1" step="1" value="1"></label><label>До страницы<input id="pdf-last" type="number" min="1" step="1" placeholder="До конца"></label></div></div>
+<p id="import-hint"></p>
+<button id="import-submit" type="submit">Создать черновик</button>
+</form>
+<button id="pdf-cancel" type="button" class="quiet" hidden>Отменить обработку</button>
+<section id="pdf-review" hidden>
+<h3>Рецепты из PDF</h3><p id="pdf-file-name"></p><p id="pdf-result" role="status"></p>
+<p>Распознавание может пропустить строки или перепутать колонки. Проверь каждую карточку перед загрузкой. Если порции не указаны, одна порция — вся закладка.</p>
+<div id="pdf-drafts"></div><div class="actions"><button id="pdf-save" type="button">Сохранить выбранные</button><button id="pdf-download" type="button" class="quiet">Скачать JSON</button></div>
+<details><summary>Исходный текст и повторный разбор</summary><label>Текст PDF<textarea id="pdf-raw" rows="16"></textarea></label><p>Разделяй рецепты названием и заголовками «Ингредиенты» и «Приготовление».</p><button id="pdf-reparse" type="button">Повторить разбор</button><button id="pdf-single" type="button" class="quiet">Создать одну карточку</button></details></section>
+<section id="ocr-review" hidden><h3>Проверка распознанного текста</h3><p>Можно исправить текст или вставить результат «Скопировать текст» из приложения «Фото» iPhone. Сохрани заголовки «Ингредиенты» и «Приготовление».</p><label>Распознанный текст<textarea id="ocr-review-text" rows="16"></textarea></label><details><summary>Полный результат распознавания</summary><pre id="ocr-raw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details><button id="ocr-create" type="button">Создать рецепт из текста</button></section>
+</section>
+<section id="menus" hidden>
+<p class="section-intro">Планируй блюда и получай общий список продуктов.</p>
+<form id="new-menu">
+<label>Название меню<input name="name" required maxlength="120" placeholder="Ужины на неделю"></label>
+<button type="submit">Создать меню</button>
+</form>
+<div id="menu-panel" hidden>
+<label>Выбери меню<select id="menu-choice"></select></label>
+<h3>Блюда</h3>
+<form id="menu-add">
+<div class="menu-add-fields">
+<label>Рецепт<select name="recipe" required></select></label>
+<label>Порции для блюда<input name="servings" type="number" min="1" max="999" step="1" inputmode="numeric" required></label>
+</div>
+<button type="submit">Добавить в меню</button>
+</form>
+<ul id="menu-dishes"></ul>
+<section class="shopping-panel" aria-labelledby="shopping-heading">
+<h3 id="shopping-heading">Список продуктов</h3>
+<p class="shopping-hint">Количество рассчитано на все блюда в этом меню. Отмечай купленные продукты в списке.</p>
+<p id="shopping-progress" aria-live="polite"></p>
+<ul id="shopping-list"></ul>
+<button id="copy-shopping" type="button" disabled>Скопировать список</button>
+</section>
+<button id="delete-menu" class="quiet danger" type="button">Удалить меню</button>
+</div>
+</section>
+<section id="backups" hidden><div class="backup-panel"><p>Сохрани копию в «Файлы» или iCloud Drive. Она включает фото, заметки, избранное и меню.</p><button id="export-backup" type="button">Скачать базу рецептов</button><a href="app-backup.zip" download>Скачать приложение ZIP</a><label>Восстановить базу<input id="restore-file" type="file" accept=".json,application/json"></label><p id="restore-info"></p><button id="restore-backup" type="button" disabled>Добавить из копии</button><p>Восстановление добавляет рецепты и меню, не удаляя существующие. Повторная загрузка создаст дубликаты.</p></div></section>
+</main>
+<nav id="tabbar" class="tabbar" aria-label="Основные разделы">
+<button id="open-recipes" class="tabbar-item" type="button" aria-current="page"><span aria-hidden="true">▦</span>Рецепты</button>
+<button id="open-menus" class="tabbar-item" type="button"><span aria-hidden="true">☷</span>Меню</button>
+<button id="open-backups" class="tabbar-item" type="button"><span aria-hidden="true">⇩</span>Копии</button>
+</nav>
+<dialog id="add-dialog" class="add-dialog">
+<div class="add-sheet">
+<div class="sheet-handle" aria-hidden="true"></div>
+<div class="sheet-heading"><div><p class="eyebrow">НОВЫЙ РЕЦЕПТ</p><h2>Как добавить?</h2></div><button id="close-add" class="icon-button quiet" type="button" aria-label="Закрыть">×</button></div>
+<div class="add-options">
+<button id="add" class="add-option" type="button" disabled><span class="add-option-icon" aria-hidden="true">✎</span><span><strong>Вручную</strong><small>Заполнить рецепт самостоятельно</small></span></button>
+<button id="open-photo" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">▣</span><span><strong>По фото</strong><small>Распознать страницу или скриншот</small></span></button>
+<button id="open-text" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">≡</span><span><strong>Из текста</strong><small>Вставить готовый текст рецепта</small></span></button>
+<button id="open-import" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">⇧</span><span><strong>Из файла</strong><small>Загрузить PDF, TXT или сборник</small></span></button>
+</div>
+</div>
+</dialog>
+<dialog id="photo-dialog" class="photo-dialog">
+<button id="close-photo" class="photo-close" type="button" aria-label="Закрыть фото">×</button>
+<img id="photo-full" alt="">
+</dialog>
+<template id="ingredient-template">
+<div class="ingredient">
+<label>Продукт<input data-key="name" required placeholder="Мука"></label>
+<label>Кол-во<input data-key="amount" inputmode="text" placeholder="1/2"></label>
+<label>Ед.<input data-key="unit" placeholder="стакана"></label>
+<button type="button" class="quiet danger" aria-label="Удалить ингредиент">×</button>
+</div>
+</template>
+</body></html>

@@ -91,7 +91,7 @@ function textDrafts(text, source) {
 async function readTextFile(file) {
   const buffer = await file.arrayBuffer();
   const utf8 = new TextDecoder('utf-8').decode(buffer).replace(/^﻿/, '');
-  const broken = (utf8.match(/�/g) || []).length;
+  const broken = (utf8.match(/\uFFFD/g) || []).length;
   if (broken > 3 || (broken && broken / utf8.length > 0.001)) {
     try { return new TextDecoder('windows-1251').decode(buffer); } catch { /* декодер недоступен */ }
   }

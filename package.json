@@ -1,0 +1,10 @@
+{
+  "name": "my-recipes",
+  "private": true,
+  "type": "module",
+  "description": "Мои рецепты — кулинарная книга в браузере",
+  "scripts": {
+    "start": "node tests/serve.mjs",
+    "test": "node --test tests/import.test.mjs"
+  }
+}

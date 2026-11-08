@@ -131,3 +131,14 @@ select{font:inherit;font-size:16px;display:block;width:100%;min-height:44px;bord
 
 #pdf-drafts details{padding:16px;margin:12px 0;border:1px solid var(--line);border-radius:16px;background:var(--card)}
 #pdf-drafts summary{cursor:pointer;font-weight:700}#pdf-drafts input[type=checkbox]{width:auto;margin-right:10px}#pdf-drafts textarea{font-size:16px}#pdf-file-name{overflow-wrap:anywhere}
+
+.file-report{list-style:none;padding:0;margin:12px 0;display:grid;gap:6px}
+.file-report-row{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow-wrap:anywhere}
+.file-report-row small{color:var(--muted);text-align:right}
+.file-report-row.ok small{color:var(--green)}
+.file-report-row.error{border-color:#c9553f}
+.file-report-row.error small{color:#a23b28}
+.duplicate-note{margin:6px 0;padding:8px 10px;border-radius:10px;background:#f4e5c9;font-size:.9rem}
+.drop-overlay{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgb(44 84 61 / .16);font-weight:600;pointer-events:none}
+.drop-overlay:not([hidden]){outline:3px dashed var(--green);outline-offset:-14px}
+.drop-overlay[hidden]{display:none}

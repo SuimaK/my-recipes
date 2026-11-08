@@ -14,6 +14,7 @@
 <script defer src="menu.js?v=10"></script>
 <script defer src="pdf-import.js?v=1"></script>
   <script defer src="backup.js?v=1"></script>
+  <script defer src="collection-import.js?v=1"></script>
 </head>
 <body>
 <main>
@@ -110,7 +111,7 @@
 <button id="delete-menu" class="quiet danger" type="button">Удалить меню</button>
 </div>
 </section>
-<section id="backups" hidden><div class="backup-panel"><p>Сохрани копию в «Файлы» или iCloud Drive. Она включает фото, заметки, избранное и меню.</p><button id="export-backup" type="button">Скачать базу рецептов</button><a href="app-backup.zip" download>Скачать приложение ZIP</a><label>Восстановить базу<input id="restore-file" type="file" accept=".json,application/json"></label><p id="restore-info"></p><button id="restore-backup" type="button" disabled>Добавить из копии</button><p>Восстановление добавляет рецепты и меню, не удаляя существующие. Повторная загрузка создаст дубликаты.</p></div></section>
+<section id="backups" hidden><div class="backup-panel"><p>Сохрани копию в «Файлы» или iCloud Drive. Она включает фото, заметки, избранное и меню.</p><button id="export-backup" type="button">Скачать базу рецептов</button><a href="app-backup.zip" download>Скачать приложение ZIP</a><label>Восстановить базу<input id="restore-file" type="file" accept=".json,application/json"></label><p id="restore-info"></p><button id="restore-backup" type="button" disabled>Добавить из копии</button><p>Восстановление добавляет рецепты и меню, не удаляя существующие. Рецепты, которые уже есть в книге, повторно не добавляются.</p></div></section>
 </main>
 <nav id="tabbar" class="tabbar" aria-label="Основные разделы">
 <button id="open-recipes" class="tabbar-item" type="button" aria-current="page"><span aria-hidden="true">▦</span>Рецепты</button>

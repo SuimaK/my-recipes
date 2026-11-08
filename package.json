@@ -1,0 +1,13 @@
+{
+  "name": "my-recipes",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Мои рецепты — кулинарная книга в браузере",
+  "scripts": {
+    "start": "node tests/serve.mjs",
+    "test": "node --test tests/parser.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "test:all": "node --test tests/parser.test.mjs tests/e2e.test.mjs"
+  }
+}

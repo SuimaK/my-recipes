@@ -10,11 +10,11 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css?v=17">
 <script defer src="app.js?v=15"></script>
-<script defer src="import.js?v=23"></script>
+<script defer src="import.js?v=24"></script>
 <script defer src="menu.js?v=10"></script>
 <script defer src="pdf-import.js?v=1"></script>
   <script defer src="backup.js?v=1"></script>
-  <script defer src="collection-import.js?v=1"></script>
+  <script defer src="collection-import.js?v=2"></script>
 </head>
 <body>
 <main>
@@ -70,7 +70,7 @@
 <h2 id="import-title">Добавление рецепта</h2>
 <form id="import-form">
 <label id="import-text-field" hidden>Текст рецепта<textarea id="import-text" rows="8" placeholder="Вставь название, ингредиенты и шаги" disabled></textarea></label>
-<label id="import-photo-field" hidden>Фото или снимок экрана<input id="import-photo" type="file" accept="image/*" disabled></label>
+<label id="import-photo-field" hidden>Фото или снимки экрана (можно несколько)<input id="import-photo" type="file" accept="image/*" multiple disabled></label>
 <label id="import-file-field" hidden>PDF, текстовый файл или сборник JSON<input id="import-file" type="file" accept=".pdf,.txt,.json,application/pdf,text/plain,application/json" disabled></label>
 <div id="pdf-range" hidden><p>Для PDF можно выбрать страницы. Пустое поле «До» означает конец книги.</p><div class="columns"><label>Со страницы<input id="pdf-first" type="number" min="1" step="1" value="1"></label><label>До страницы<input id="pdf-last" type="number" min="1" step="1" placeholder="До конца"></label></div></div>
 <p id="import-hint"></p>

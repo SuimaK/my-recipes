@@ -402,7 +402,7 @@ window.addEventListener('drop', async event => {
   const files = [...(event.dataTransfer?.files || [])];
   if (!files.length || !database) return;
   const images = files.filter(file => fileKind(file) === 'image');
-  if (images.length === files.length) { startPhotoImport(images[0]); return; }
+  if (images.length === files.length) { startPhotoImport(images); return; }
   byId('add-dialog').close();
   byId('open-import').onclick();
   const transfer = new DataTransfer();
@@ -411,21 +411,21 @@ window.addEventListener('drop', async event => {
   importForm.requestSubmit();
 });
 
-function startPhotoImport(file) {
+function startPhotoImport(files) {
   byId('add-dialog').close();
   byId('open-photo').onclick();
   const transfer = new DataTransfer();
-  transfer.items.add(file);
+  [].concat(files).slice(0, maxPhotos).forEach(file => transfer.items.add(file));
   byId('import-photo').files = transfer.files;
   importForm.requestSubmit();
 }
 
 window.addEventListener('paste', event => {
   if (byId('importer').hidden || activeImport === 'text') return;
-  const image = [...(event.clipboardData?.files || [])].find(file => fileKind(file) === 'image');
-  if (!image) return;
+  const images = [...(event.clipboardData?.files || [])].filter(file => fileKind(file) === 'image');
+  if (!images.length) return;
   event.preventDefault();
-  startPhotoImport(image);
+  startPhotoImport(images);
 });
 
 // ---------- Восстановление копии без повторов ----------
@@ -473,3 +473,11 @@ byId('restore-backup').onclick = async () => {
     button.disabled = false;
   }
 };
+
+// Сколько фото выбрано для распознавания.
+byId('import-photo').addEventListener('change', event => {
+  const count = event.target.files.length;
+  byId('import-hint').textContent = count > maxPhotos ? 'Можно выбрать до ' + maxPhotos + ' фото за раз.'
+    : count > 1 ? 'Выбрано фото: ' + count + '. Текст распознается по порядку и объединится в один рецепт.'
+    : importModes.photo.hint;
+});

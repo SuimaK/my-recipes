@@ -197,4 +197,38 @@ test('по фото: настоящее распознавание на устр
   await page.context().close();
 });
 
+test('по фото: несколько страниц одного рецепта распознаются вместе', { timeout: 400000 }, async () => {
+  const shot = async html => {
+    const maker = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    await maker.setContent(`<div style="font:32px/1.5 Georgia,serif;padding:40px;background:#fff;color:#000">${html}</div>`);
+    const image = await maker.screenshot({ type: 'png' });
+    await maker.close();
+    return image;
+  };
+  const first = await shot('<b style="font-size:44px">Овсяное печенье</b><br>На 4 порции<br><b>Ингредиенты</b><br>овсяные хлопья 200 г<br>сахар 100 г<br>яйцо 2 шт');
+  const second = await shot('<b>Приготовление</b><br>1. Смешать хлопья, сахар и яйца.<br>2. Выложить на противень ложкой.<br>3. Выпекать 20 минут при 180 градусах.');
+  const page = await freshPage();
+  await openMode(page, '#open-photo');
+  assert.equal(await page.$eval('#import-photo', el => el.multiple), true);
+  await page.setInputFiles('#import-photo', [
+    { name: 'page1.png', mimeType: 'image/png', buffer: first },
+    { name: 'page2.png', mimeType: 'image/png', buffer: second }
+  ]);
+  assert.match(await page.textContent('#import-hint'), /Выбрано фото: 2/);
+  await page.click('#import-submit');
+  await page.waitForSelector('#ocr-review:not([hidden])', { timeout: 380000 });
+  const raw = await page.textContent('#ocr-raw');
+  assert.match(raw, /Фото 1 \(page1\.png\)/);
+  assert.match(raw, /Фото 2 \(page2\.png\)/);
+  const text = await page.inputValue('#ocr-review-text');
+  assert.match(text, /Овсяное печенье/);
+  assert.match(text, /сахар 100 г/);
+  assert.match(text, /Выпекать 20 минут/);
+  await page.click('#ocr-create');
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.equal(await page.inputValue('[name=title]'), 'Овсяное печенье');
+  assert.match(await page.inputValue('[name=instructions]'), /Смешать хлопья/);
+  await page.context().close();
+});
+
 test('в консоли нет ошибок', () => assert.deepEqual(errors, []));

@@ -435,13 +435,49 @@ async function importCollection(file) {
   message('Сборник сохранён. Добавлено: ' + added + '. Уже в книге: ' + (recipes.length - added) + '.');
 }
 
+const maxPhotos = 10;
+
+// Распознаёт одно фото. Страницы многостраничного рецепта распознаются по очереди одним модулем OCR.
+async function recognizePhoto(worker, file, prefix, keepTitle) {
+  message(prefix + 'подготавливаю фото к распознаванию…');
+  const canvas = await imageCanvas(file);
+  let enhanced;
+  try {
+    await worker.setParameters({tessedit_pageseg_mode: '3'});
+    message(prefix + 'распознаю текст на фото…');
+    let text = (await worker.recognize(canvas)).data.text;
+    let quality = ocrQuality(text);
+    message(prefix + 'улучшаю изображение и распознаю повторно…');
+    enhanced = enhancedOCRCanvas(canvas);
+    await worker.setParameters({tessedit_pageseg_mode: '6'});
+    const retry = (await worker.recognize(enhanced)).data.text;
+    const retryQuality = ocrQuality(retry);
+    if (retryQuality >= quality || photoRecipeLooksUsable(retry)) {
+      const originalTitle = keepTitle && text.split(/\r?\n/).find(line => line.trim().length > 5);
+      text = originalTitle ? originalTitle + '\n' + retry : retry;
+      quality = retryQuality;
+    }
+    const sourceText = text;
+    if (!photoRecipeLooksUsable(text)) {
+      message(prefix + 'разделяю страницу на название, ингредиенты и приготовление…');
+      const regionalText = (await worker.recognize(canvas)).data.text;
+      if (regionalText && (photoRecipeLooksUsable(regionalText) || ocrQuality(regionalText) >= quality)) text = regionalText;
+    }
+    const photo = keepTitle ? await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88)) : null;
+    return {text, sourceText, photo};
+  } finally {
+    if (enhanced) enhanced.width = enhanced.height = 0;
+    canvas.width = canvas.height = 0;
+  }
+}
+
 const importModes = {
   text: {button: 'open-text', input: 'import-text', title: 'Рецепт из текста',
     hint: 'Вставь рецепт целиком. Если есть заголовки «Ингредиенты» и «Приготовление», оставь их в тексте.',
     action: 'Создать черновик', missing: 'Вставь текст рецепта.'},
   photo: {button: 'open-photo', input: 'import-photo', title: 'Рецепт по фото',
-    hint: 'Выбери чёткое фото или скриншот, на котором видны ингредиенты и шаги. Распознавание выполняется на устройстве.',
-    action: 'Распознать фото', missing: 'Выбери фото или снимок экрана.'},
+    hint: 'Выбери чёткое фото или скриншот, на котором видны ингредиенты и шаги. Если рецепт на нескольких страницах, выбери все фото сразу — текст объединится по порядку выбора. Распознавание выполняется на устройстве.',
+    action: 'Распознать фото', missing: 'Выбери одно или несколько фото.'},
   file: {button: 'open-import', input: 'import-file', title: 'Рецепт из файла',
     hint: 'Выбери PDF, текстовый файл или готовый сборник рецептов.',
     action: 'Импортировать', missing: 'Выбери файл.'}
@@ -489,6 +525,7 @@ importForm.onsubmit = async event => {
   const file = input.files?.[0];
   let text = activeImport === 'text' ? input.value.trim() : '';
   let photoSourceText = '';
+  let pendingRawText = '';
   let photo;
   if (!text && !file) {
     message(mode.missing);
@@ -498,44 +535,29 @@ importForm.onsubmit = async event => {
   for (const control of controls) control.disabled = true;
   try {
     if (activeImport === 'photo') {
-      message('Подготавливаю фото к распознаванию…');
-      const canvas = await imageCanvas(file);
+      const photos = [...input.files];
+      if (photos.length > maxPhotos) throw new Error('Можно выбрать до ' + maxPhotos + ' фото за раз.');
+      const pages = [];
+      const sources = [];
       let worker;
-      let enhanced;
       try {
         message('Загружаю модуль распознавания…');
         worker = await createOCR();
-        message('Распознаю текст на фото…');
-        text = (await worker.recognize(canvas)).data.text;
-        let quality = ocrQuality(text);
-        {
-          message('Улучшаю изображение и распознаю повторно…');
-          enhanced = enhancedOCRCanvas(canvas);
-          await worker.setParameters({tessedit_pageseg_mode: '6'});
-          const retry = (await worker.recognize(enhanced)).data.text;
-          const retryQuality = ocrQuality(retry);
-          if (retryQuality >= quality || photoRecipeLooksUsable(retry)) {
-            const originalTitle = text.split(/\r?\n/).find(line => line.trim().length > 5);
-            text = originalTitle ? originalTitle + '\n' + retry : retry;
-            quality = retryQuality;
-          }
+        for (const [index, source] of photos.entries()) {
+          const prefix = photos.length > 1 ? 'Фото ' + (index + 1) + ' из ' + photos.length + ': ' : '';
+          const page = await recognizePhoto(worker, source, prefix, index === 0);
+          pages.push(page.text);
+          sources.push(page.sourceText);
+          if (index === 0) photo = page.photo;
         }
-        photoSourceText = text;
-        if (!photoRecipeLooksUsable(text)) {
-          message('Разделяю страницу на название, ингредиенты и приготовление…');
-          await worker.setParameters({tessedit_pageseg_mode: '6'});
-          const regionalText = (await worker.recognize(canvas)).data.text;
-          if (regionalText && (photoRecipeLooksUsable(regionalText) || ocrQuality(regionalText) >= quality)) {
-            text = regionalText;
-            quality = ocrQuality(regionalText);
-          }
-        }
-        photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
       } finally {
-        if (enhanced) enhanced.width = enhanced.height = 0;
-        canvas.width = canvas.height = 0;
         if (worker) await worker.terminate();
       }
+      text = pages.map(page => page.trim()).filter(Boolean).join('\n');
+      photoSourceText = sources.join('\n');
+      pendingRawText = photos.length > 1
+        ? pages.map((page, index) => '— Фото ' + (index + 1) + ' (' + photos[index].name + ') —\n' + page.trim()).join('\n\n')
+        : text;
     } else if (file) {
       message('Читаю файл на устройстве…');
       if (file.type === 'application/json' || /\.json$/i.test(file.name)) {
@@ -550,10 +572,10 @@ importForm.onsubmit = async event => {
     if (activeImport === 'photo') {
       pendingPhoto = photo;
       pendingPhotoPrep = /заготовк[аи]/iu.test(photoSourceText + '\n' + text);
-      byId('ocr-raw').textContent = text;
+      byId('ocr-raw').textContent = pendingRawText || text;
       byId('ocr-review-text').value = preparePhotoRecipeText(text);
       byId('ocr-review').hidden = false;
-      message('Текст распознан. Проверь его перед созданием рецепта: особенно количества и конец инструкции.');
+      message((input.files.length > 1 ? 'Текст с ' + input.files.length + ' фото объединён. ' : 'Текст распознан. ') + 'Проверь его перед созданием рецепта: особенно количества и конец инструкции.');
       return;
     }
     const recipe = parseRecipe(text);

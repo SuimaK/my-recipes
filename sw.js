@@ -1,6 +1,6 @@
 const cachePrefix = 'recipekeeper-' + self.registration.scope;
-const cacheName = cachePrefix + '-v27';
-const assets = ['./', './index.html', './app.js?v=15', './import.js?v=24', './backup.js?v=1', './collection-import.js?v=2', './pdf-import.js?v=1', './menu.js?v=10', './style.css?v=17', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const cacheName = cachePrefix + '-v28';
+const assets = ['./', './index.html', './app.js?v=15', './import.js?v=25', './backup.js?v=1', './collection-import.js?v=2', './pdf-import.js?v=1', './menu.js?v=10', './style.css?v=17', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(assets)).then(() => self.skipWaiting()));
 });

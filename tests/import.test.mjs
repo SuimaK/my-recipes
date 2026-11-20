@@ -231,4 +231,41 @@ test('по фото: несколько страниц одного рецепт
   await page.context().close();
 });
 
+test('по фото: скриншоты чата в тёмной теме с узорным фоном', { timeout: 400000 }, async () => {
+  const pattern = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><g fill="none" stroke="#4a3a32" stroke-width="3"><path d="M10 60 C30 10 60 110 90 40 S120 90 110 110"/><circle cx="30" cy="30" r="12"/><path d="M60 5 q10 20 0 40 q-10 20 0 40"/></g></svg>');
+  const shot = async body => {
+    const maker = await browser.newPage({ viewport: { width: 402, height: 874 }, deviceScaleFactor: 3 });
+    await maker.setContent(`<body style="margin:0;background:#2a211d url('data:image/svg+xml,${pattern}');font:17px/1.45 Helvetica,Arial,sans-serif;color:#f2f2f2;height:874px;overflow:hidden">
+      <div style="background:#1e1e1e;padding:12px 24px;font-weight:600">10:34 <span style="float:right">99</span></div>
+      <div style="background:#1e1e1e;padding:6px 16px 10px;display:flex;gap:12px;align-items:center"><span style="font-size:26px">‹</span><div style="width:40px;height:40px;border-radius:50%;background:#c96"></div><div><b>Анна Иванова</b><br><span style="color:#aaa;font-size:14px">Бот</span></div></div>
+      <div style="margin:12px 70px 0 6px;background:#2c2c2e;padding:12px 10px;border-radius:12px">${body}</div>
+      <div style="position:absolute;bottom:0;left:0;right:0;background:#1e1e1e;padding:14px 20px;color:#999">Сообщение</div></body>`);
+    const image = await maker.screenshot({ type: 'png' });
+    await maker.close();
+    return image;
+  };
+  const first = await shot('<b>Творожная галета с курицей,<br>цукини и песто</b><br><br><b>Ингредиенты на 1 большую галету:</b><br><br>Для теста:<br>Мука пшеничная 250 г<br>Мягкий творог 0% 150 г<br>Шпинат 50 г<br><br>Для начинки:<br>Куриное филе 180 г<br>Цукини 150 г<br>Сулугуни 40 г<br>Прованские травы 3 г<br><br><b>Как готовить:</b><br><br>1. Шпинат бланшировать 30 секунд,<br>остудить и измельчить с яйцом.');
+  const second = await shot('Соединить с творогом и мукой.<br>Замесить тесто.<br>2. Курицу нарезать кубиками,<br>цукини тонкими кружками.<br>3. Выпекать 35 минут при 190 градусах.');
+  const page = await freshPage();
+  await openMode(page, '#open-photo');
+  await page.setInputFiles('#import-photo', [
+    { name: 'chat1.png', mimeType: 'image/png', buffer: first },
+    { name: 'chat2.png', mimeType: 'image/png', buffer: second }
+  ]);
+  await page.click('#import-submit');
+  await page.waitForSelector('#ocr-review:not([hidden])', { timeout: 380000 });
+  const text = await page.inputValue('#ocr-review-text');
+  assert.match(text, /^Творожная галета с курицей, цукини и песто\n/);
+  for (const line of ['Мука пшеничная 250 г', 'Цукини 150 г', 'Сулугуни 40 г', 'Прованские травы 3 г']) {
+    assert.ok(text.split('\n').includes(line), line + '\n' + text);
+  }
+  assert.doesNotMatch(text, /Анна Иванова|Бот|Сообщение|^\s*(?:[|[]|[ШЖ](?=\s|[А-ЯЁ]))/mu);
+  assert.match(text, /Замесить тесто/);
+  assert.match(text, /Выпекать 35 минут/);
+  await page.click('#ocr-create');
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.equal(await page.inputValue('[name=title]'), 'Творожная галета с курицей, цукини и песто');
+  await page.context().close();
+});
+
 test('в консоли нет ошибок', () => assert.deepEqual(errors, []));

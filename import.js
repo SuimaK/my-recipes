@@ -117,16 +117,24 @@ function preparePhotoRecipeText(text) {
   const methodStart = lines.findIndex((line, index) => {
     const key = headingKey(line);
     return index > ingredientStart && !/время/u.test(key) &&
-      /способприготовления|приготовление|риготовление|риготовления|инструкция|шаги|instructions|directions/u.test(key);
+      /способприготовления|приготовление|риготовление|риготовления|какготовить|инструкция|шаги|instructions|directions/u.test(key);
   });
   if (ingredientStart < 0 || methodStart < 0) return text;
 
-  const chatLine = /закрепл[её]нное сообщение|переслано от|\bforwarded from\b|^(?:написать\s+)?сообщение\s*$|(?:^|(?:\d+(?:[.,]\d+)?\s*[кkmм]|\d{3,})\s+)\d{1,2}:\d{2}\s*[✓✔/|]*\s*$|^\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)$/iu;
+  const chatLine = /закрепл[её]нное сообщение|переслано от|\bforwarded from\b|^(?:написать\s+)?сообщение[^\p{L}\p{N}]*$|(?:^|(?:\d+(?:[.,]\d+)?\s*[кkmм]|\d{3,})\s+)\d{1,2}:\d{2}\s*[✓✔/|]*\s*$|^\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)$/iu;
   const recipeMetadata = /(?:рецепт\s+рассчитан|на\s+\d+\s+порци|порции\s*[:：]|количество\s+порций\s*[:：]|(?:активное|общее)\s+время(?:\s+приготовления)?\s*[:：])/iu;
   const preamble = lines.slice(0, ingredientStart).filter(Boolean);
-  const title = preamble.map(line => line.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N})]+$/u, ''))
+  const titleLine = preamble.map(line => line.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[^\p{L}\p{N})]+$/u, ''))
     .find(line => /[а-яё]{4}/iu.test(line) && !chatLine.test(line) && !recipeMetadata.test(line) &&
       !/^(?:рецепты|избранное|recipes|количество|время)$/iu.test(line) && line.length <= 160);
+  let title = titleLine;
+  const titleIndex = preamble.findIndex(line => line.includes(titleLine));
+  const nextTitleLine = titleIndex >= 0 && preamble[titleIndex + 1];
+  // Длинное название часто переносится: «Творожная галета с курицей,» + «цукини и песто».
+  if (title && nextTitleLine && (/[,–—-]$/u.test(preamble[titleIndex]) || /^[а-яё]/u.test(nextTitleLine)) &&
+      /^[\p{L}\s,–—-]{3,60}$/u.test(nextTitleLine) && !chatLine.test(nextTitleLine)) {
+    title = (title.replace(/[,\s]+$/u, '') + (/[,]$/u.test(preamble[titleIndex]) ? ', ' : ' ') + nextTitleLine).slice(0, 160);
+  }
 
   const exactIngredient = new RegExp('^(.{2,100}?)\\s+(' + quantityPattern + ')\\s*(' + unitsPattern + ')(?=\\s|$)', 'iu');
   const descriptiveIngredient = new RegExp('^(.{2,100}?)\\s+(' + quantityPattern + ')\\s+((?:(?:небольш|средн|крупн)\\p{L}*\\s+)?(?:головк|луковиц|стебл|пуч|веточк|лист|почат|дольк)\\p{L}*)', 'iu');
@@ -194,10 +202,81 @@ function ocrQuality(text) {
   if (!letters.length) return 0;
   const cyrillic = letters.filter(letter => /[а-яё]/iu.test(letter)).length;
   const useful = /ингредиент/iu.test(text) && /приготовлен/iu.test(text) ? 35 : 0;
-  const noise = (text.match(/[©®$<>_=]{1,}/g) || []).length * 4;
+  const noise = (text.match(/[©®$<>_=]{1,}/g) || []).length * 4 +
+    (text.match(/^\s*(?:[|\[\]{}]|[ШЖЩ](?=\s|[А-ЯЁ]))/gmu) || []).length * 3;
   return Math.round(cyrillic / letters.length * 65 + useful - noise);
 }
 
+function grayLevels(image) {
+  const gray = new Uint8ClampedArray(image.data.length / 4);
+  for (let pixel = 0, index = 0; pixel < gray.length; pixel++, index += 4) {
+    gray[pixel] = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+  }
+  return gray;
+}
+
+function grayHistogram(gray) {
+  const histogram = new Uint32Array(256);
+  for (const value of gray) histogram[value]++;
+  return histogram;
+}
+
+function histogramPercentile(histogram, total, share) {
+  let seen = 0;
+  for (let value = 0; value < 256; value++) {
+    seen += histogram[value];
+    if (seen >= total * share) return value;
+  }
+  return 255;
+}
+
+function otsuThreshold(histogram, total) {
+  let sum = 0;
+  for (let value = 0; value < 256; value++) sum += value * histogram[value];
+  let background = 0, backgroundSum = 0, best = 0, threshold = 127;
+  for (let value = 0; value < 256; value++) {
+    background += histogram[value];
+    if (!background) continue;
+    const foreground = total - background;
+    if (!foreground) break;
+    backgroundSum += value * histogram[value];
+    const difference = backgroundSum / background - (sum - backgroundSum) / foreground;
+    const variance = background * foreground * difference * difference;
+    if (variance > best) { best = variance; threshold = value; }
+  }
+  return threshold;
+}
+
+// Готовит фото к распознаванию: оттенки серого, светлый текст на тёмном фоне
+// (тёмная тема мессенджеров) переворачивается в тёмный на светлом, контраст растягивается.
+function normalizedOCRCanvas(source) {
+  const canvas = element('canvas');
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext('2d', {alpha: false, willReadFrequently: true});
+  ctx.drawImage(source, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const gray = grayLevels(image);
+  let histogram = grayHistogram(gray);
+  const dark = histogramPercentile(histogram, gray.length, .5) < 110;
+  if (dark) {
+    for (let pixel = 0; pixel < gray.length; pixel++) gray[pixel] = 255 - gray[pixel];
+    histogram = grayHistogram(gray);
+  }
+  const low = histogramPercentile(histogram, gray.length, .01);
+  const high = Math.max(low + 1, histogramPercentile(histogram, gray.length, .99));
+  for (let pixel = 0, index = 0; pixel < gray.length; pixel++, index += 4) {
+    const value = (gray[pixel] - low) * 255 / (high - low);
+    image.data[index] = image.data[index + 1] = image.data[index + 2] = value;
+  }
+  ctx.putImageData(image, 0, 0);
+  canvas.dark = dark;
+  return canvas;
+}
+
+// Чёрно-белая версия для повторного распознавания. Порог считается по окрестности пикселя,
+// а на тёмном фоне с узором дополнительно отсекается всё светлее общего порога Оцу,
+// чтобы линии узора не превращались в буквы «Ш», «Ж» и «|» в начале строк.
 function enhancedOCRCanvas(source) {
   const canvas = element('canvas');
   canvas.width = source.width;
@@ -205,22 +284,22 @@ function enhancedOCRCanvas(source) {
   const ctx = canvas.getContext('2d', {alpha: false, willReadFrequently: true});
   ctx.drawImage(source, 0, 0);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const gray = grayLevels(image);
+  const gate = source.dark ? otsuThreshold(grayHistogram(gray), gray.length) : 255;
   const w = canvas.width, h = canvas.height, stride = w + 1;
   const sums = new Float64Array((w + 1) * (h + 1));
   for (let y = 0; y < h; y++) {
     let row = 0;
     for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      row += image.data[i] * .299 + image.data[i+1] * .587 + image.data[i+2] * .114;
+      row += gray[y * w + x];
       sums[(y+1)*stride+x+1] = sums[y*stride+x+1] + row;
     }
   }
-  for (let index = 0; index < image.data.length; index += 4) {
-    const gray = image.data[index] * 0.299 + image.data[index + 1] * 0.587 + image.data[index + 2] * 0.114;
-    const pixel = index / 4, x = pixel % w, y = Math.floor(pixel / w);
+  for (let pixel = 0, index = 0; pixel < gray.length; pixel++, index += 4) {
+    const x = pixel % w, y = Math.floor(pixel / w);
     const x0 = Math.max(0,x-25), x1 = Math.min(w,x+26), y0 = Math.max(0,y-25), y1 = Math.min(h,y+26);
     const mean = (sums[y1*stride+x1]-sums[y0*stride+x1]-sums[y1*stride+x0]+sums[y0*stride+x0])/((x1-x0)*(y1-y0));
-    const value = gray < mean - 20 ? 0 : 255;
+    const value = gray[pixel] < mean - 20 && gray[pixel] < gate ? 0 : 255;
     image.data[index] = image.data[index + 1] = image.data[index + 2] = value;
   }
   ctx.putImageData(image, 0, 0);
@@ -437,10 +516,35 @@ async function importCollection(file) {
 
 const maxPhotos = 10;
 
+// Убирает со скриншота переписки строку состояния, шапку чата («Имя» + «Бот»/«в сети»)
+// и поле «Сообщение» внизу, чтобы при склейке нескольких скриншотов они не попадали в рецепт.
+function stripChatChrome(text) {
+  let lines = text.split(/\r?\n/);
+  const words = line => (line.toLocaleLowerCase('ru').match(/[а-яёa-z]{2,}/gu) || []);
+  const filled = lines.map((line, index) => [line, index]).filter(([line]) => line.trim());
+  const header = filled.slice(0, 6).filter(([line]) => {
+    const list = words(line);
+    const main = list.filter(word => word.length > 2);
+    return main.length && main.length <= 3 &&
+      /^(?:бот|bot|онлайн|online|печатает|был|была|были|сети)$/u.test(main[0]);
+  }).pop();
+  if (header) lines = lines.slice(header[1] + 1);
+  else if (filled.length && /^\W*\d{1,2}:\d{2}(?:\s|$)/u.test(filled[0][0])) lines = lines.slice(filled[0][1] + 1);
+  const footer = lines.map((line, index) => [line, index]).filter(([line]) => line.trim()).slice(-4)
+    .find(([line]) => {
+      const list = words(line);
+      return list.includes('сообщение') && list.filter(word => word.length > 2).length <= 2;
+    });
+  if (footer) lines = lines.slice(0, footer[1]);
+  // Одиночные значки узора справа от текста: «растопленным      м».
+  return lines.map(line => line.replace(/\s{4,}\S{1,2}\s*$/u, '')).join('\n').trim();
+}
+
 // Распознаёт одно фото. Страницы многостраничного рецепта распознаются по очереди одним модулем OCR.
 async function recognizePhoto(worker, file, prefix, keepTitle) {
   message(prefix + 'подготавливаю фото к распознаванию…');
-  const canvas = await imageCanvas(file);
+  const original = await imageCanvas(file);
+  const canvas = normalizedOCRCanvas(original);
   let enhanced;
   try {
     await worker.setParameters({tessedit_pageseg_mode: '3'});
@@ -463,11 +567,12 @@ async function recognizePhoto(worker, file, prefix, keepTitle) {
       const regionalText = (await worker.recognize(canvas)).data.text;
       if (regionalText && (photoRecipeLooksUsable(regionalText) || ocrQuality(regionalText) >= quality)) text = regionalText;
     }
-    const photo = keepTitle ? await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88)) : null;
-    return {text, sourceText, photo};
+    const photo = keepTitle ? await new Promise(resolve => original.toBlob(resolve, 'image/jpeg', 0.88)) : null;
+    return {text: stripChatChrome(text), sourceText, photo};
   } finally {
     if (enhanced) enhanced.width = enhanced.height = 0;
     canvas.width = canvas.height = 0;
+    original.width = original.height = 0;
   }
 }
 

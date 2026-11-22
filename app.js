@@ -482,6 +482,31 @@ function viewRecipe(recipe) {
   steps.className = 'steps';
   card.append(counter, element('h3', 'Ингредиенты'), ingredients, element('h3', 'Приготовление'), steps,
     commentsPanel(recipe));
+  const recipeActions = element('div');
+  recipeActions.className = 'actions';
+  const addToMenu = element('button', 'Добавить в меню');
+  addToMenu.type = 'button';
+  addToMenu.onclick = () => openRecipeInMenu(recipe);
+  const share = element('button', 'Поделиться');
+  share.type = 'button';
+  share.className = 'quiet';
+  share.onclick = async () => {
+    const text = [recipe.title, recipe.minutes ? 'Время: ' + recipe.minutes + ' мин' : '',
+      'Порции: ' + recipe.servings, 'Ингредиенты:',
+      ...recipe.ingredients.map(item => ingredientText(item, recipe.servings, recipe.servings)),
+      'Приготовление:', recipe.instructions].filter(Boolean).join('\n');
+    try {
+      if (navigator.share) await navigator.share({title: recipe.title, text});
+      else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        message('Рецепт скопирован. Можно отправить его в сообщении.');
+      } else message('Поделиться не удалось: браузер не поддерживает отправку.');
+    } catch (error) {
+      if (error.name !== 'AbortError') message('Не удалось поделиться рецептом.');
+    }
+  };
+  recipeActions.append(addToMenu, share);
+  card.append(recipeActions);
   render();
   show('detail');
 }

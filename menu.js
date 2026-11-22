@@ -244,3 +244,20 @@ byId('open-menus').onclick = async event => {
     button.disabled = false;
   }
 };
+
+async function openRecipeInMenu(recipe) {
+  try {
+    await renderMenus();
+    show('menus');
+    if (!activeMenuId) {
+      message('Сначала создай меню, затем выбери рецепт.');
+      return;
+    }
+    const select = menuAdd.elements.recipe;
+    select.value = String(recipe.id);
+    select.dispatchEvent(new Event('change'));
+    menuAdd.scrollIntoView({behavior: 'smooth', block: 'center'});
+  } catch {
+    message('Не удалось открыть меню. Попробуй ещё раз.');
+  }
+}

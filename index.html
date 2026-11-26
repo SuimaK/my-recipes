@@ -5,16 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f8f5ed">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Мои рецепты</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="style.css?v=17">
-<script defer src="app.js?v=16"></script>
-<script defer src="import.js?v=25"></script>
-<script defer src="menu.js?v=11"></script>
-<script defer src="pdf-import.js?v=1"></script>
-  <script defer src="backup.js?v=1"></script>
-  <script defer src="collection-import.js?v=2"></script>
+<!-- Версия файлов задаётся одним числом VERSION в sw.js; ?v= здесь не нужны. -->
+<link rel="stylesheet" href="style.css">
+<script defer src="app.js"></script>
+<script defer src="import.js"></script>
+<script defer src="menu.js"></script>
+<script defer src="pdf-import.js"></script>
+<script defer src="backup.js"></script>
+<script defer src="collection-import.js"></script>
 </head>
 <body>
 <main>
@@ -71,7 +73,7 @@
 <form id="import-form">
 <label id="import-text-field" hidden>Текст рецепта<textarea id="import-text" rows="8" placeholder="Вставь название, ингредиенты и шаги" disabled></textarea></label>
 <label id="import-photo-field" hidden>Фото или снимки экрана (можно несколько)<input id="import-photo" type="file" accept="image/*" multiple disabled></label>
-<label id="import-file-field" hidden>PDF, текстовый файл или сборник JSON<input id="import-file" type="file" accept=".pdf,.txt,.json,application/pdf,text/plain,application/json" disabled></label>
+<label id="import-file-field" hidden>PDF, TXT, MD, HTML или сборник JSON (можно несколько)<input id="import-file" type="file" accept=".pdf,.txt,.md,.json,.html,.htm,application/pdf,text/plain,text/markdown,text/html,application/json" multiple disabled></label>
 <div id="pdf-range" hidden><p>Для PDF можно выбрать страницы. Пустое поле «До» означает конец книги.</p><div class="columns"><label>Со страницы<input id="pdf-first" type="number" min="1" step="1" value="1"></label><label>До страницы<input id="pdf-last" type="number" min="1" step="1" placeholder="До конца"></label></div></div>
 <p id="import-hint"></p>
 <button id="import-submit" type="submit">Создать черновик</button>
@@ -82,7 +84,7 @@
 <p>Распознавание может пропустить строки или перепутать колонки. Проверь каждую карточку перед загрузкой. Если порции не указаны, одна порция — вся закладка.</p>
 <div id="pdf-drafts"></div><div class="actions"><button id="pdf-save" type="button">Сохранить выбранные</button><button id="pdf-download" type="button" class="quiet">Скачать JSON</button></div>
 <details><summary>Исходный текст и повторный разбор</summary><label>Текст PDF<textarea id="pdf-raw" rows="16"></textarea></label><p>Разделяй рецепты названием и заголовками «Ингредиенты» и «Приготовление».</p><button id="pdf-reparse" type="button">Повторить разбор</button><button id="pdf-single" type="button" class="quiet">Создать одну карточку</button></details></section>
-<section id="ocr-review" hidden><h3>Проверка распознанного текста</h3><p>Можно исправить текст или вставить результат «Скопировать текст» из приложения «Фото» iPhone. Сохрани заголовки «Ингредиенты» и «Приготовление».</p><label>Распознанный текст<textarea id="ocr-review-text" rows="16"></textarea></label><details><summary>Полный результат распознавания</summary><pre id="ocr-raw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details><button id="ocr-create" type="button">Создать рецепт из текста</button></section>
+<section id="ocr-review" hidden><h3>Проверка распознанного текста</h3><p>Можно исправить текст или вставить результат «Скопировать текст» из приложения «Фото» iPhone. Сохрани заголовки «Ингредиенты» и «Приготовление».</p><label>Распознанный текст<textarea id="ocr-review-text" rows="16"></textarea></label><details><summary>Полный результат распознавания</summary><pre id="ocr-raw" class="ocr-raw"></pre></details><button id="ocr-create" type="button">Создать рецепт из текста</button></section>
 </section>
 <section id="menus" hidden>
 <p class="section-intro">Планируй блюда и получай общий список продуктов.</p>
@@ -111,7 +113,7 @@
 <button id="delete-menu" class="quiet danger" type="button">Удалить меню</button>
 </div>
 </section>
-<section id="backups" hidden><div class="backup-panel"><p>Сохрани копию в «Файлы» или iCloud Drive. Она включает фото, заметки, избранное и меню.</p><button id="export-backup" type="button">Скачать базу рецептов</button><a href="app-backup.zip" download>Скачать приложение ZIP</a><label>Восстановить базу<input id="restore-file" type="file" accept=".json,application/json"></label><p id="restore-info"></p><button id="restore-backup" type="button" disabled>Добавить из копии</button><p>Восстановление добавляет рецепты и меню, не удаляя существующие. Рецепты, которые уже есть в книге, повторно не добавляются.</p></div></section>
+<section id="backups" hidden><div class="backup-panel"><p>Сохрани копию в «Файлы» или iCloud Drive. Она включает фото, заметки, избранное и меню.</p><button id="export-backup" type="button">Скачать базу рецептов</button><a href="https://github.com/SuimaK/my-recipes/archive/refs/heads/main.zip">Скачать приложение ZIP</a><label>Восстановить базу<input id="restore-file" type="file" accept=".json,application/json"></label><p id="restore-info"></p><button id="restore-backup" type="button" disabled>Добавить из копии</button><p>Восстановление добавляет рецепты и меню, не удаляя существующие. Рецепты и меню, которые уже есть в книге, повторно не добавляются.</p></div></section>
 </main>
 <nav id="tabbar" class="tabbar" aria-label="Основные разделы">
 <button id="open-recipes" class="tabbar-item" type="button" aria-current="page"><span aria-hidden="true">▦</span>Рецепты</button>
@@ -126,7 +128,7 @@
 <button id="add" class="add-option" type="button" disabled><span class="add-option-icon" aria-hidden="true">✎</span><span><strong>Вручную</strong><small>Заполнить рецепт самостоятельно</small></span></button>
 <button id="open-photo" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">▣</span><span><strong>По фото</strong><small>Распознать страницу или скриншот</small></span></button>
 <button id="open-text" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">≡</span><span><strong>Из текста</strong><small>Вставить готовый текст рецепта</small></span></button>
-<button id="open-import" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">⇧</span><span><strong>Из файла</strong><small>Загрузить PDF, TXT или сборник</small></span></button>
+<button id="open-import" class="add-option" type="button"><span class="add-option-icon" aria-hidden="true">⇧</span><span><strong>Из файла</strong><small>PDF, TXT, HTML или сборник</small></span></button>
 </div>
 </div>
 </dialog>

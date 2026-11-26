@@ -27,7 +27,7 @@ async function freshPage() {
   await page.waitForFunction(() => !document.getElementById('add-trigger').disabled && document.getElementById('recipes').children.length);
   return page;
 }
-const titles = page => page.$$eval('#recipes .tile strong', els => els.map(e => e.textContent));
+const titles = page => page.$$eval('#recipes .tile:not([hidden]) strong', els => els.map(e => e.textContent));
 const draftTitles = page => page.$$eval('#pdf-drafts summary', els => els.map(e => e.textContent));
 
 async function openMode(page, button) {

@@ -1,16 +1,12 @@
 'use strict';
-// Доработка загрузки рецептов: сборники в тексте и TXT, несколько файлов сразу,
+// Загрузка рецептов из файлов и текста: сборники в тексте и TXT, несколько файлов сразу,
 // перетаскивание и вставка скриншота, кодировка Windows-1251, HTML-страницы рецептов,
-// поиск повторов при загрузке и восстановлении копии.
+// поиск повторов при загрузке.
 
 const sectionIngredients = /^(?:#{1,6}\s*)?(?:\*\*)?(?:ингредиенты|продукты|состав|ingredients)(?:\*\*)?\s*(?:[:：]|$)/iu;
 const recipeMarker = /^\s*#*\s*(?:рецепт|recipe)\s*№?\s*\d+/iu;
 const separatorLine = /^\s*(?:-{3,}|\*{3,}|={3,}|_{3,}|~{3,})\s*$/;
 
-function normalizeRecipeTitle(title) {
-  return String(title || '').normalize('NFC').toLocaleLowerCase('ru').replace(/ё/g, 'е')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-}
 
 function looksLikeMeta(line) {
   return /^(?:порци|количество\s+порций|на\s+\d+\s+порци|(?:общее\s+)?время|выход)/iu.test(line);
@@ -34,7 +30,7 @@ function cutLines(lines, starts) {
 
 /** Делит текст сборника на тексты отдельных рецептов. Один рецепт → массив из одного элемента. */
 function splitRecipeText(text) {
-  const normalized = String(text || '').replace(/\r\n?/g, '\n').replace(/ /g, ' ').trim();
+  const normalized = String(text || '').replace(/\r\n?/g, '\n').replace(/\u00A0/g, ' ').trim();
   if (!normalized) return [];
   const lines = normalized.split('\n');
 
@@ -90,7 +86,7 @@ function textDrafts(text, source) {
 
 async function readTextFile(file) {
   const buffer = await file.arrayBuffer();
-  const utf8 = new TextDecoder('utf-8').decode(buffer).replace(/^﻿/, '');
+  const utf8 = new TextDecoder('utf-8').decode(buffer).replace(/^\uFEFF/, '');
   const broken = (utf8.match(/\uFFFD/g) || []).length;
   if (broken > 3 || (broken && broken / utf8.length > 0.001)) {
     try { return new TextDecoder('windows-1251').decode(buffer); } catch { /* декодер недоступен */ }
@@ -167,26 +163,28 @@ async function existingTitles() {
   return new Map(recipes.map(recipe => [normalizeRecipeTitle(recipe.title), recipe]));
 }
 
-function recipeFingerprint(recipe) {
-  return JSON.stringify([normalizeRecipeTitle(recipe.title), String(recipe.instructions || '').trim(),
-    (recipe.ingredients || []).map(item => [item.name, item.amount, item.unit].map(value => String(value || '').trim()))]);
+async function markEditorDuplicate() {
+  const titles = await existingTitles();
+  const note = byId('import-note');
+  const duplicate = titles.get(normalizeRecipeTitle(fields.title.value));
+  note.textContent = duplicate
+    ? 'Рецепт «' + duplicate.title + '» уже есть в книге. Сохранение создаст ещё одну карточку.'
+    : 'Проверь черновик рецепта. Уточни поля, которые приложение не смогло распознать.';
 }
 
 // ---------- Проверка черновиков ----------
 
-let reviewTitles = new Map();
-
 async function showDrafts(drafts, raw, name) {
-  reviewTitles = await existingTitles();
-  renderPDFReview(drafts, raw, name);
+  const titles = await existingTitles();
+  const rows = renderPDFReview(drafts, raw, name);
   byId('pdf-review').querySelector('h3').textContent = 'Найденные рецепты';
   let duplicates = 0;
-  pdfDraftRows.forEach((row, index) => {
+  rows.forEach((row, index) => {
     const draft = drafts[index];
     const summary = row.editor.closest('details').querySelector('summary');
     const title = parseRecipe(row.editor.value).title;
     summary.textContent = (draft.source ? draft.source + ' · ' : 'Стр. ' + draft.page + ' · ') + title;
-    if (reviewTitles.has(normalizeRecipeTitle(title))) {
+    if (titles.has(normalizeRecipeTitle(title))) {
       duplicates++;
       row.check.checked = false;
       const note = element('p', 'Рецепт с таким названием уже есть в книге. Отметь «Загрузить», если нужна ещё одна карточка.');
@@ -205,6 +203,8 @@ async function showDrafts(drafts, raw, name) {
 
 // ---------- Загрузка нескольких файлов ----------
 
+const MB = 1024 * 1024;
+const maxFileSize = {pdf: 100 * MB, json: 250 * MB, text: 10 * MB, html: 10 * MB};
 let fileReport = [];
 
 function renderFileReport() {
@@ -224,6 +224,11 @@ function renderFileReport() {
   }));
 }
 
+function clearFileReport() {
+  fileReport = [];
+  renderFileReport();
+}
+
 async function importFiles(files) {
   fileReport = files.map(file => ({name: file.name, state: 'wait', text: 'В очереди'}));
   renderFileReport();
@@ -235,26 +240,26 @@ async function importFiles(files) {
     entry.text = 'Читаю…';
     renderFileReport();
     try {
-      if (file.size > 250 * 1024 * 1024) throw Error('файл больше 250 МБ');
       const kind = fileKind(file);
+      if (file.size > maxFileSize[kind]) throw Error('файл больше ' + Math.round(maxFileSize[kind] / MB) + ' МБ');
       let found = [];
       if (kind === 'json') {
         const data = JSON.parse(await file.text());
         if (data?.format === 'recipekeeper-backup-v1') {
-          openBackupRestore(file);
+          openBackupRestore(file, data);
           entry.state = 'ok';
           entry.text = 'Это резервная копия: открыл восстановление на вкладке «Копии»';
           continue;
         }
-        await importCollection(file);
+        if (file.size > maxCollectionSize) throw Error('сборник больше 25 МБ');
+        entry.text = await importCollectionData(data);
         collections++;
         entry.state = 'ok';
-        entry.text = byId('status').textContent || 'Сборник сохранён';
         show('importer');
         continue;
       }
       if (kind === 'pdf') {
-        const result = await extractPDF(file);
+        const result = await convertPDF(file, {render: false});
         found = result.drafts.map(draft => ({...draft, source: file.name + ', стр. ' + draft.page}));
         raws.push(result.raw);
         if (!found.length && result.raw.trim()) found = [{page: 1, text: result.raw, source: file.name}];
@@ -291,84 +296,15 @@ async function importFiles(files) {
   }
 }
 
-/** Вариант convertPDF, который возвращает черновики, а не показывает их. */
-async function extractPDF(file) {
-  let captured;
-  const original = renderPDFReview;
-  renderPDFReview = (drafts, raw) => { captured = {drafts, raw}; };
-  try {
-    await convertPDF(file);
-  } finally {
-    renderPDFReview = original;
-  }
-  return captured || {drafts: [], raw: ''};
-}
-
-function openBackupRestore(file) {
+function openBackupRestore(file, data) {
   show('backups');
-  const input = byId('restore-file');
   const transfer = new DataTransfer();
   transfer.items.add(file);
-  input.files = transfer.files;
-  input.dispatchEvent(new Event('change'));
+  byId('restore-file').files = transfer.files;
+  return loadBackupFile(file, data);
 }
 
-// ---------- Подключение к интерфейсу ----------
-
-const fileInput = byId('import-file');
-fileInput.multiple = true;
-fileInput.accept = '.pdf,.txt,.md,.json,.html,.htm,application/pdf,text/plain,text/markdown,text/html,application/json';
-importModes.file.hint = 'Выбери один или несколько файлов: PDF, TXT, MD, HTML (сохранённая страница рецепта) или сборник JSON. Файлы можно просто перетащить в окно.';
-importModes.text.hint = 'Вставь один рецепт или сразу несколько. Рецепты разделяй строкой «---» или начинай каждый с названия и заголовка «Ингредиенты».';
-importModes.file.missing = 'Выбери файлы.';
-
-const originalSubmit = importForm.onsubmit;
-importForm.onsubmit = async event => {
-  event.preventDefault();
-  fileReport = [];
-  renderFileReport();
-  if (activeImport === 'text') {
-    const text = byId('import-text').value.trim();
-    const drafts = textDrafts(text, '');
-    if (drafts.length > 1) {
-      await showDrafts(drafts, text, 'Вставленный текст');
-      message('В тексте несколько рецептов. Проверь черновики и выбери, что сохранить.');
-      return;
-    }
-    if (drafts.length === 1) byId('import-text').value = drafts[0].text;
-  }
-  if (activeImport === 'file') {
-    const files = [...fileInput.files];
-    if (!files.length) { message(importModes.file.missing); return; }
-    const controls = [fileInput, byId('import-submit'), byId('import-back')];
-    for (const control of controls) control.disabled = true;
-    try {
-      resetPDFReview();
-      await importFiles(files);
-    } finally {
-      for (const control of controls) control.disabled = false;
-    }
-    return;
-  }
-  const result = await originalSubmit(event);
-  if (activeImport !== 'photo' && !byId('editor').hidden) await markEditorDuplicate();
-  return result;
-};
-
-async function markEditorDuplicate() {
-  const titles = await existingTitles();
-  const note = byId('import-note');
-  const duplicate = titles.get(normalizeRecipeTitle(fields.title.value));
-  note.textContent = duplicate
-    ? 'Рецепт «' + duplicate.title + '» уже есть в книге. Сохранение создаст ещё одну карточку.'
-    : 'Проверь черновик рецепта. Уточни поля, которые приложение не смогло распознать.';
-}
-
-const originalOCRCreate = byId('ocr-create').onclick;
-byId('ocr-create').onclick = async () => {
-  originalOCRCreate();
-  if (!byId('editor').hidden) await markEditorDuplicate();
-};
+// ---------- Подсказки ----------
 
 // Подсказка о количестве рецептов в тексте.
 const textArea = byId('import-text');
@@ -382,41 +318,50 @@ textArea.addEventListener('input', () => {
   }, 250);
 });
 
-// Перетаскивание файлов в окно и вставка скриншота.
+// Сколько фото выбрано для распознавания.
+byId('import-photo').addEventListener('change', event => {
+  const count = event.target.files.length;
+  byId('import-hint').textContent = count > maxPhotos ? 'Можно выбрать до ' + maxPhotos + ' фото за раз.'
+    : count > 1 ? 'Выбрано фото: ' + count + '. Текст распознается по порядку и объединится в один рецепт.'
+    : importModes.photo.hint;
+});
+
+// ---------- Перетаскивание файлов и вставка скриншота ----------
+
+// Перехватываем только перетаскивание файлов: текст по-прежнему можно перетащить в поле ввода.
+const draggingFiles = event => Boolean(event.dataTransfer?.types && [...event.dataTransfer.types].includes('Files'));
 let dragDepth = 0;
 const dropOverlay = element('div', 'Отпусти файлы, чтобы добавить рецепты');
 dropOverlay.className = 'drop-overlay';
 dropOverlay.hidden = true;
 document.body.append(dropOverlay);
 window.addEventListener('dragenter', event => {
-  if (!database || !event.dataTransfer?.types?.includes('Files')) return;
+  if (!database || !draggingFiles(event)) return;
   dragDepth++;
   dropOverlay.hidden = false;
 });
-window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropOverlay.hidden = true; } });
-window.addEventListener('dragover', event => event.preventDefault());
-window.addEventListener('drop', async event => {
+window.addEventListener('dragleave', event => {
+  if (!draggingFiles(event)) return;
+  if (--dragDepth <= 0) { dragDepth = 0; dropOverlay.hidden = true; }
+});
+window.addEventListener('dragover', event => { if (draggingFiles(event)) event.preventDefault(); });
+window.addEventListener('drop', event => {
+  const files = [...(event.dataTransfer?.files || [])];
+  if (!files.length) return;
   event.preventDefault();
   dragDepth = 0;
   dropOverlay.hidden = true;
-  const files = [...(event.dataTransfer?.files || [])];
-  if (!files.length || !database) return;
+  if (!database) return;
   const images = files.filter(file => fileKind(file) === 'image');
-  if (images.length === files.length) { startPhotoImport(images); return; }
-  byId('add-dialog').close();
-  byId('open-import').onclick();
-  const transfer = new DataTransfer();
-  files.filter(file => fileKind(file) !== 'image').forEach(file => transfer.items.add(file));
-  fileInput.files = transfer.files;
-  importForm.requestSubmit();
+  // Только фото → распознавание. Иначе все файлы идут в «Из файла»: у фото в отчёте будет подсказка.
+  startImport(images.length === files.length ? 'photo' : 'file', images.length === files.length ? images : files);
 });
 
-function startPhotoImport(files) {
-  byId('add-dialog').close();
-  byId('open-photo').onclick();
+function startImport(mode, files) {
+  openImportMode(mode);
   const transfer = new DataTransfer();
-  [].concat(files).slice(0, maxPhotos).forEach(file => transfer.items.add(file));
-  byId('import-photo').files = transfer.files;
+  (mode === 'photo' ? files.slice(0, maxPhotos) : files).forEach(file => transfer.items.add(file));
+  byId(importModes[mode].input).files = transfer.files;
   importForm.requestSubmit();
 }
 
@@ -425,59 +370,5 @@ window.addEventListener('paste', event => {
   const images = [...(event.clipboardData?.files || [])].filter(file => fileKind(file) === 'image');
   if (!images.length) return;
   event.preventDefault();
-  startPhotoImport(images);
-});
-
-// ---------- Восстановление копии без повторов ----------
-
-byId('restore-backup').onclick = async () => {
-  if (!restoreData) return;
-  const button = byId('restore-backup');
-  button.disabled = true;
-  try {
-    const existing = await transact('readonly', store => store.getAll());
-    const known = new Map(existing.map(recipe => [recipeFingerprint(recipe), recipe.id]));
-    let added = 0;
-    let skipped = 0;
-    await new Promise((resolve, reject) => {
-      const tx = database.transaction(['recipes', 'menus'], 'readwrite');
-      const mapping = new Map();
-      const recipes = tx.objectStore('recipes');
-      const menus = tx.objectStore('menus');
-      let pending = 0;
-      const addMenus = () => {
-        for (const source of restoreData.menus) {
-          const {id, ...menu} = source;
-          menus.add({...menu, entries: menu.entries.map(entry => ({...entry, recipeId: mapping.get(entry.recipeId)}))});
-        }
-      };
-      for (const source of restoreData.recipes) {
-        const {id, importKey, ...recipe} = source;
-        const same = known.get(recipeFingerprint(recipe));
-        if (same !== undefined) { mapping.set(id, same); skipped++; continue; }
-        pending++;
-        const request = recipes.add(recipe);
-        request.onsuccess = () => { mapping.set(id, request.result); added++; if (--pending === 0) addMenus(); };
-      }
-      if (!pending) addMenus();
-      tx.oncomplete = resolve;
-      tx.onabort = () => reject(tx.error);
-    });
-    restoreData = null;
-    byId('restore-file').value = '';
-    byId('restore-info').textContent = '';
-    await listRecipes();
-    message('Копия восстановлена. Добавлено рецептов: ' + added + (skipped ? ', уже были в книге: ' + skipped : '') + '.');
-  } catch {
-    message('Восстановление отменено из-за ошибки. Частичные данные не сохранены.');
-    button.disabled = false;
-  }
-};
-
-// Сколько фото выбрано для распознавания.
-byId('import-photo').addEventListener('change', event => {
-  const count = event.target.files.length;
-  byId('import-hint').textContent = count > maxPhotos ? 'Можно выбрать до ' + maxPhotos + ' фото за раз.'
-    : count > 1 ? 'Выбрано фото: ' + count + '. Текст распознается по порядку и объединится в один рецепт.'
-    : importModes.photo.hint;
+  startImport('photo', images);
 });

@@ -35,7 +35,7 @@ function shoppingItems(entries, recipes) {
       const bounds = amountBounds(item.amount);
       const key = JSON.stringify([normalizedName(name), normalizedName(unit),
         bounds ? null : normalizedName(item.amount)]);
-      if (!groups.has(key)) groups.set(key, {name, unit, low: 0, high: 0, text: bounds ? null : item.amount});
+      if (!groups.has(key)) groups.set(key, {key, name, unit, low: 0, high: 0, text: bounds ? null : item.amount});
       if (bounds) {
         const group = groups.get(key);
         const scale = factor * entry.servings / recipe.servings;
@@ -53,7 +53,8 @@ function shoppingItems(entries, recipes) {
     }
     const amount = item.text ?? formatBounds(low, high, item.name, unit);
     const quantity = [amount, unit].filter(Boolean).join(' ');
-    return quantity ? item.name + ' — ' + quantity : item.name;
+    // key не зависит от количества, поэтому отметка «куплено» сохраняется при изменении порций.
+    return {key: item.key, text: quantity ? item.name + ' — ' + quantity : item.name};
   });
 }
 
@@ -122,15 +123,18 @@ async function renderMenus() {
   copy.disabled = !shopping.length;
   copy.onclick = async () => {
     try {
-      await navigator.clipboard.writeText(shopping.join('\n'));
+      await navigator.clipboard.writeText(shopping.map(item => item.text).join('\n'));
       message('Список продуктов скопирован.');
     } catch {
       message('Не удалось скопировать список. Его можно выделить и скопировать вручную.');
     }
   };
-  const purchased = new Set(active.purchased || []);
+  // Старые версии хранили отметку как текст строки («Мука — 500 г»), поэтому он тоже учитывается.
+  const purchased = new Set(shopping.filter(item => (active.purchased || []).includes(item.key)
+    || (active.purchased || []).includes(item.text)).map(item => item.key));
+  const currentKeys = shopping.map(item => item.key);
   const updateProgress = () => {
-    const count = shopping.filter(item => purchased.has(item)).length;
+    const count = shopping.filter(item => purchased.has(item.key)).length;
     byId('shopping-progress').textContent = shopping.length ? 'Куплено ' + count + ' из ' + shopping.length : '';
   };
   const list = byId('shopping-list');
@@ -140,23 +144,25 @@ async function renderMenus() {
     const label = element('label');
     const check = element('input');
     check.type = 'checkbox';
-    check.checked = purchased.has(item);
+    check.checked = purchased.has(item.key);
     check.onchange = async () => {
       const checked = check.checked;
       check.disabled = true;
       try {
-        await setPurchased(active.id, item, checked);
-        if (checked) purchased.add(item);
-        else purchased.delete(item);
+        if (checked) purchased.add(item.key);
+        else purchased.delete(item.key);
+        await setPurchased(active.id, [...purchased], currentKeys);
         if (list.contains(check)) updateProgress();
       } catch {
+        if (checked) purchased.delete(item.key);
+        else purchased.add(item.key);
         check.checked = !checked;
         message('Не удалось сохранить отметку о покупке.');
       } finally {
         check.disabled = false;
       }
     };
-    label.append(check, element('span', item));
+    label.append(check, element('span', item.text));
     row.append(label);
     list.append(row);
   }
@@ -178,16 +184,14 @@ async function renderMenus() {
   };
 }
 
-function setPurchased(menuId, item, checked) {
+/** Сохраняет отметки для текущего списка; отметки продуктов, которых в списке больше нет, удаляются. */
+function setPurchased(menuId, keys, currentKeys) {
+  const current = new Set(currentKeys);
   return transact('readwrite', store => {
     const request = store.get(menuId);
     request.onsuccess = () => {
       const menu = request.result;
-      if (!menu) return;
-      const purchased = new Set(menu.purchased || []);
-      if (checked) purchased.add(item);
-      else purchased.delete(item);
-      store.put({...menu, purchased: [...purchased]});
+      if (menu) store.put({...menu, purchased: keys.filter(key => current.has(key))});
     };
     return request;
   }, 'menus');

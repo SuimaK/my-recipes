@@ -11,6 +11,7 @@ let current;
 let photoURL;
 let collectionRecipes = [];
 let tilePhotoURLs = [];
+const recipeTiles = new Map(); // id рецепта → плитка в списке
 const ingredientSearch = byId('ingredient-search');
 const titleSearch = byId('title-search');
 const categoryOptions = [
@@ -72,6 +73,47 @@ function element(tag, value) {
   return node;
 }
 
+/** Название для сравнения: без регистра, «ё» как «е», без знаков препинания. */
+function normalizeRecipeTitle(title) {
+  return String(title || '').normalize('NFC').toLocaleLowerCase('ru').replace(/ё/g, 'е')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+const photoMaxSide = 1600;  // сохранённое фото рецепта
+const thumbMaxSide = 480;   // миниатюра для плитки в списке
+
+/**
+ * Уменьшает изображение до maxSide по длинной стороне и сохраняет в JPEG.
+ * Если фото и так небольшое JPEG, возвращает его без изменений. При ошибке — null.
+ */
+async function resizeImage(blob, maxSide, quality = 0.85, keepSmallJPEG = true) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const side = Math.max(img.naturalWidth, img.naturalHeight);
+    if (keepSmallJPEG && side <= maxSide && blob.type === 'image/jpeg') return blob;
+    const scale = Math.min(1, maxSide / side);
+    const canvas = element('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const ctx = canvas.getContext('2d', {alpha: false});
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const result = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    canvas.width = canvas.height = 0;
+    return result;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const makeThumbnail = photo => resizeImage(photo, thumbMaxSide, 0.8, false);
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('recipekeeper-stage-one', 2);
@@ -79,7 +121,11 @@ function openDatabase() {
       if (event.oldVersion < 1) request.result.createObjectStore('recipes', {keyPath: 'id', autoIncrement: true});
       if (event.oldVersion < 2) request.result.createObjectStore('menus', {keyPath: 'id', autoIncrement: true});
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      // Если другая вкладка обновляет базу, закрываем соединение, чтобы не блокировать её.
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
     request.onerror = () => reject(request.error);
   });
 }
@@ -226,67 +272,121 @@ function favoriteButton(recipe, rerender = false) {
   return button;
 }
 
+function recipeTile(recipe) {
+  const tile = element('article');
+  tile.className = 'tile';
+  const button = element('button');
+  button.className = 'tile-open';
+  const media = element('span');
+  media.className = 'tile-media';
+  if (recipe.photo) {
+    const image = element('img');
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    setTilePhoto(image, recipe.thumb || recipe.photo);
+    media.append(image);
+  } else {
+    const placeholder = element('span', '♨');
+    placeholder.className = 'tile-placeholder';
+    placeholder.setAttribute('aria-hidden', 'true');
+    media.append(placeholder);
+  }
+  const content = element('span');
+  content.className = 'tile-content';
+  content.append(element('strong', recipe.title));
+  const meta = element('small', [recipe.minutes && recipe.minutes + ' мин', recipe.servings + ' порц.']
+    .filter(Boolean).join(' · '));
+  meta.className = 'tile-meta';
+  content.append(meta);
+  const category = element('span', categoryLabels[inferCategory(recipe)]);
+  category.className = 'category-label';
+  content.append(category);
+  if (difficultyLabels[recipe.difficulty]) {
+    const difficulty = element('span', difficultyLabels[recipe.difficulty]);
+    difficulty.className = 'difficulty-label difficulty-' + recipe.difficulty;
+    content.append(difficulty);
+  }
+  if (recipe.isPrep) {
+    const prep = element('span', '❄ Заготовка');
+    prep.className = 'prep-label';
+    content.append(prep);
+  }
+  button.append(media, content);
+  button.onclick = () => viewRecipe(recipe);
+  tile.append(button, favoriteButton(recipe, true));
+  return tile;
+}
+
+function setTilePhoto(image, blob) {
+  const url = URL.createObjectURL(blob);
+  tilePhotoURLs.push(url);
+  image.src = url;
+}
+
+/** Создаёт плитки всех рецептов один раз; поиск и разделы потом только скрывают лишние. */
+function buildRecipeTiles() {
+  for (const url of tilePhotoURLs) URL.revokeObjectURL(url);
+  tilePhotoURLs = [];
+  recipeTiles.clear();
+  const empty = element('p');
+  empty.className = 'empty';
+  empty.id = 'recipes-empty';
+  const tiles = collectionRecipes.map(recipe => {
+    const tile = recipeTile(recipe);
+    recipeTiles.set(recipe.id, tile);
+    return tile;
+  });
+  byId('recipes').replaceChildren(empty, ...tiles);
+  renderRecipeList();
+  fillMissingThumbnails();
+}
+
 function renderRecipeList() {
   const titleQuery = ingredientSearchWords(titleSearch.value);
   const ingredientQuery = ingredientSearchWords(ingredientSearch.value);
-  const recipes = matchingRecipes(collectionRecipes, titleQuery, ingredientQuery);
-  const list = byId('recipes');
-  for (const url of tilePhotoURLs) URL.revokeObjectURL(url);
-  tilePhotoURLs = [];
-  const filtering = titleQuery.length || ingredientQuery.length || activeCategory !== 'all';
-  byId('recipe-search-status').textContent = filtering && recipes.length
-    ? 'Рецептов найдено — ' + recipes.length : '';
-  list.replaceChildren();
-  if (!recipes.length) {
-    const empty = element('p', filtering ? 'Рецептов по выбранным условиям пока нет.'
-      : 'Здесь будут твои рецепты. Добавь первый, чтобы начать.');
-    empty.className = 'empty';
-    list.append(empty);
+  const visible = new Set(matchingRecipes(collectionRecipes, titleQuery, ingredientQuery));
+  for (const recipe of collectionRecipes) {
+    const tile = recipeTiles.get(recipe.id);
+    if (tile) tile.hidden = !visible.has(recipe);
   }
-  for (const recipe of recipes) {
-    const tile = element('article');
-    tile.className = 'tile';
-    const button = element('button');
-    button.className = 'tile-open';
-    const media = element('span');
-    media.className = 'tile-media';
-    if (recipe.photo) {
-      const url = URL.createObjectURL(recipe.photo);
-      tilePhotoURLs.push(url);
-      const image = element('img');
-      image.src = url;
-      image.alt = '';
-      media.append(image);
-    } else {
-      const placeholder = element('span', '♨');
-      placeholder.className = 'tile-placeholder';
-      placeholder.setAttribute('aria-hidden', 'true');
-      media.append(placeholder);
+  const filtering = titleQuery.length || ingredientQuery.length || activeCategory !== 'all';
+  byId('recipe-search-status').textContent = filtering && visible.size
+    ? 'Рецептов найдено — ' + visible.size : '';
+  const empty = byId('recipes-empty');
+  empty.hidden = visible.size > 0;
+  empty.textContent = filtering ? 'Рецептов по выбранным условиям пока нет.'
+    : 'Здесь будут твои рецепты. Добавь первый, чтобы начать.';
+}
+
+// Для рецептов, сохранённых до появления миниатюр, миниатюры создаются в фоне по одной.
+let thumbnailsRunning = false;
+async function fillMissingThumbnails() {
+  if (thumbnailsRunning) return;
+  thumbnailsRunning = true;
+  try {
+    for (const recipe of collectionRecipes.filter(item => item.photo && !item.thumb)) {
+      const photo = recipe.photo;
+      const thumb = await makeThumbnail(photo);
+      if (!thumb) continue;
+      const stored = await transact('readwrite', store => {
+        const request = store.get(recipe.id);
+        request.onsuccess = () => {
+          const record = request.result;
+          // Пропускаем, если рецепт удалили или сменили фото, пока готовилась миниатюра.
+          if (!record?.photo || record.thumb || record.photo.size !== photo.size) return;
+          store.put({...record, thumb});
+        };
+        return request;
+      }).catch(() => null);
+      if (!stored?.photo || stored.photo.size !== photo.size) continue;
+      recipe.thumb = thumb;
+      const image = recipeTiles.get(recipe.id)?.querySelector('img');
+      if (image) setTilePhoto(image, thumb);
+      await new Promise(resolve => setTimeout(resolve, 30));
     }
-    const content = element('span');
-    content.className = 'tile-content';
-    content.append(element('strong', recipe.title));
-    const meta = element('small', [recipe.minutes && recipe.minutes + ' мин', recipe.servings + ' порц.']
-      .filter(Boolean).join(' · '));
-    meta.className = 'tile-meta';
-    content.append(meta);
-    const category = element('span', categoryLabels[inferCategory(recipe)]);
-    category.className = 'category-label';
-    content.append(category);
-    if (difficultyLabels[recipe.difficulty]) {
-      const difficulty = element('span', difficultyLabels[recipe.difficulty]);
-      difficulty.className = 'difficulty-label difficulty-' + recipe.difficulty;
-      content.append(difficulty);
-    }
-    if (recipe.isPrep) {
-      const prep = element('span', '❄ Заготовка');
-      prep.className = 'prep-label';
-      content.append(prep);
-    }
-    button.append(media, content);
-    button.onclick = () => viewRecipe(recipe);
-    tile.append(button, favoriteButton(recipe, true));
-    list.append(tile);
+  } finally {
+    thumbnailsRunning = false;
   }
 }
 
@@ -298,7 +398,7 @@ async function listRecipes() {
   collectionRecipes = (await transact('readonly', store => store.getAll())).reverse();
   ingredientSearch.disabled = false;
   titleSearch.disabled = false;
-  renderRecipeList();
+  buildRecipeTiles();
   if (photoURL) URL.revokeObjectURL(photoURL);
   photoURL = undefined;
   current = undefined;
@@ -560,6 +660,20 @@ async function saveRecipe(event) {
     message('Выбери файл изображения.');
     return;
   }
+  const submit = form.querySelector('[type=submit]');
+  submit.disabled = true;
+  byId('cancel').disabled = true;
+  // Новое фото (выбранное или из распознавания) уменьшается до 1600 px, и к нему готовится миниатюра.
+  // Уже сохранённое фото не пересжимается.
+  const newPhoto = file || (fields.clearPhoto.checked || current?.photo ? null : draftPhoto);
+  let photo = fields.clearPhoto.checked && !file ? null : current?.photo || null;
+  let thumb = photo ? current?.thumb || null : null;
+  if (newPhoto) {
+    message('Готовлю фото…');
+    photo = await resizeImage(newPhoto, photoMaxSide) || newPhoto;
+    thumb = await makeThumbnail(photo);
+    message();
+  }
   const recipe = {
     title,
     category: fields.category.value,
@@ -569,7 +683,8 @@ async function saveRecipe(event) {
     servings: fields.servings.valueAsNumber,
     instructions,
     ingredients,
-    photo: file || (fields.clearPhoto.checked ? null : current?.photo || draftPhoto || null)
+    photo,
+    thumb
   };
   if (current) {
     recipe.id = current.id;
@@ -577,9 +692,6 @@ async function saveRecipe(event) {
     recipe.comments = Array.isArray(current.comments) ? current.comments : [];
     if (current.importKey) recipe.importKey = current.importKey;
   }
-  const submit = form.querySelector('[type=submit]');
-  submit.disabled = true;
-  byId('cancel').disabled = true;
   try {
     recipe.id = await transact('readwrite', store => store.put(recipe));
     viewRecipe(recipe);

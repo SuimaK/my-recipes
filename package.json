@@ -5,6 +5,6 @@
   "description": "Мои рецепты — кулинарная книга в браузере",
   "scripts": {
     "start": "node tests/serve.mjs",
-    "test": "node --test tests/import.test.mjs"
+    "test": "node --test tests/import.test.mjs tests/app.test.mjs"
   }
 }

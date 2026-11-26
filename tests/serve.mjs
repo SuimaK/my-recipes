@@ -7,9 +7,14 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
 
+// server.overrides: путь → текст, который отдаётся вместо файла (нужно тестам, например для новой версии sw.js).
 export function serve(port = 0) {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+    if (server.overrides.has(path)) {
+      res.writeHead(200, { 'content-type': types[extname(path)] || 'text/plain' }).end(server.overrides.get(path));
+      return;
+    }
     const file = join(root, path.endsWith('/') ? path + 'index.html' : path);
     if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
     try {
@@ -17,6 +22,7 @@ export function serve(port = 0) {
       res.writeHead(200, { 'content-type': types[extname(file)] || 'application/octet-stream' }).end(data);
     } catch { res.writeHead(404).end('Not found'); }
   });
+  server.overrides = new Map();
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
 }
 

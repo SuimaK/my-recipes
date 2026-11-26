@@ -165,16 +165,20 @@ function preparePhotoRecipeText(text) {
   let current = '';
   let separated = false;
   for (const rawLine of rawSteps) {
-    const line = rawLine.replace(/©/g, 'с').replace(/^[^\p{L}\p{N}]+(?=\p{L})/u, '').trim();
+    const line = rawLine.replace(/©/g, 'с').replace(/^[^\p{L}\p{N}]+(?=[\p{L}\p{N}])/u, '').trim();
     if (!line) {
       separated = true;
       continue;
     }
     if (chatLine.test(line) || /^(?:кбжу|бобовые|птица|рыба|супы|десерты|гарниры)$/iu.test(line)) break;
-    const numbered = /^(\d+)[.,)]\s*(.+)$/u.exec(line);
+    // «1. Шаг», «1) Шаг», а также номер из кружка без точки: «4, Шаг», «6 — Шаг», «7: Шаг», «3 ° Шаг».
+    // Цифру в кружке распознавание иногда принимает за похожую букву или знак: «з» — 3, «б» — 6, «$» — 3.
+    const numbered = /^(\d{1,2})[.,)]\s*(.+)$/u.exec(line)
+      || /^(\d{1,2}|[зЗб$§])\s*[^\p{L}\p{N}\s]{0,3}\s+([А-ЯЁ].+)$/u.exec(line);
     if (numbered) {
       if (current) steps.push(current);
-      current = numbered[1] + '. ' + numbered[2].replace(/^[-–—]\s*/u, '');
+      // Шаги нумеруются по порядку: цифру в кружке распознавание иногда путает («1» → «7»).
+      current = (steps.length + 1) + '. ' + numbered[2].replace(/^[-–—]\s*/u, '');
       separated = false;
     } else if (current && !separated && /[а-яё]{3}/iu.test(line)) {
       current += ' ' + line;
@@ -247,6 +251,66 @@ function otsuThreshold(histogram, total) {
   return threshold;
 }
 
+// Цветные заливки на скриншотах сайтов (кружки с номерами шагов, кнопка «наверх», значки) превращаются
+// в белый фон, а светлые цифры и буквы внутри них — в тёмные. Иначе зелёный кружок с «3» читается как «(5)»,
+// «©» или «СЭ». Заливка отличается от цветного текста плотностью: в окне вокруг точки почти всё цветное.
+function flattenColorBadges(image) {
+  const {width: w, height: h, data} = image;
+  const colored = new Uint8Array(w * h);
+  for (let p = 0, i = 0; p < colored.length; p++, i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    colored[p] = max - min > 35 && max > 70 ? 1 : 0;
+  }
+  const radius = Math.max(4, Math.round(w / 110));
+  const stride = w + 1;
+  const sums = new Uint32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += colored[y * w + x];
+      sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + row;
+    }
+  }
+  const windowSum = (table, x, y) => {
+    const x0 = Math.max(0, x - radius), x1 = Math.min(w, x + radius + 1);
+    const y0 = Math.max(0, y - radius), y1 = Math.min(h, y + radius + 1);
+    return [table[y1 * stride + x1] - table[y0 * stride + x1] - table[y1 * stride + x0] + table[y0 * stride + x0],
+      (x1 - x0) * (y1 - y0)];
+  };
+  const blob = new Uint8Array(w * h);
+  for (let p = 0; p < blob.length; p++) {
+    const x = p % w, y = (p - x) / w;
+    const [sum, area] = windowSum(sums, x, y);
+    blob[p] = sum / area >= 0.6 ? 1 : 0;
+  }
+  const blobSums = new Uint32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += blob[y * w + x];
+      blobSums[(y + 1) * stride + x + 1] = blobSums[y * stride + x + 1] + row;
+    }
+  }
+  let changed = 0;
+  for (let p = 0, i = 0; p < colored.length; p++, i += 4) {
+    const x = p % w, y = (p - x) / w;
+    if (!blob[p]) {
+      // Край заливки (сглаживание по контуру кружка) тоже убираем, иначе он читается как скобки.
+      if (colored[p] && windowSum(blobSums, x, y)[0] > 0) { data[i] = data[i + 1] = data[i + 2] = 255; changed++; }
+      continue;
+    }
+    const luma = data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114;
+    let value;
+    if (colored[p]) value = 255;
+    else if (luma > 150) value = 0;
+    else continue;
+    data[i] = data[i + 1] = data[i + 2] = value;
+    changed++;
+  }
+  return changed;
+}
+
 // Готовит фото к распознаванию: оттенки серого, светлый текст на тёмном фоне
 // (тёмная тема мессенджеров) переворачивается в тёмный на светлом, контраст растягивается.
 function normalizedOCRCanvas(source) {
@@ -256,6 +320,7 @@ function normalizedOCRCanvas(source) {
   const ctx = canvas.getContext('2d', {alpha: false, willReadFrequently: true});
   ctx.drawImage(source, 0, 0);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  flattenColorBadges(image);
   const gray = grayLevels(image);
   let histogram = grayHistogram(gray);
   const dark = histogramPercentile(histogram, gray.length, .5) < 110;
@@ -320,6 +385,56 @@ function cropOCRCanvas(source, left, top, width, height) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   return canvas;
+}
+
+// У «3» с плоским верхом (частый шрифт на сайтах) русская модель Tesseract видит «5».
+// У настоящей «5» слева вверху есть вертикальная черта, у такой «3» там пусто — проверяем по изображению.
+function looksLikeFlatTopThree(canvas, {x0, y0, x1, y1}) {
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 6 || h < 10) return false;
+  const pixels = canvas.getContext('2d', {willReadFrequently: true}).getImageData(x0, y0, w, h).data;
+  const luma = index => pixels[index] * .299 + pixels[index + 1] * .587 + pixels[index + 2] * .114;
+  let min = 255, max = 0;
+  for (let index = 0; index < pixels.length; index += 4) { const v = luma(index); min = Math.min(min, v); max = Math.max(max, v); }
+  if (max - min < 60) return false;
+  const threshold = (min + max) / 2;
+  const box = (left, right, top, bottom) => {
+    let dark = 0, total = 0;
+    for (let y = Math.floor(h * top); y < Math.ceil(h * bottom); y++) {
+      for (let x = Math.floor(w * left); x < Math.ceil(w * right); x++) {
+        total++;
+        if (luma((y * w + x) * 4) < threshold) dark++;
+      }
+    }
+    return total ? dark / total : 0;
+  };
+  // Левая четверть, полоса между верхней перекладиной и серединой: у «5» там вертикальная черта.
+  return box(0, 0.25, 0.2, 0.4) < 0.08 && box(0, 1, 0, 0.15) > 0.2;
+}
+
+/** Распознаёт изображение и исправляет «5», которые на самом деле «3» с плоским верхом. */
+async function recognizeText(worker, canvas) {
+  const {data} = await worker.recognize(canvas, {}, {text: true, blocks: true});
+  let text = data.text;
+  let cursor = 0;
+  for (const block of data.blocks || []) for (const paragraph of block.paragraphs) for (const line of paragraph.lines) {
+    let lineText = line.text;
+    let wordCursor = 0;
+    for (const word of line.words) {
+      if (!word.symbols.some(symbol => symbol.text === '5')) continue;
+      const fixed = word.symbols.map(symbol =>
+        symbol.text === '5' && looksLikeFlatTopThree(canvas, symbol.bbox) ? '3' : symbol.text).join('');
+      const at = lineText.indexOf(word.text, wordCursor);
+      if (fixed === word.text || at < 0) continue;
+      lineText = lineText.slice(0, at) + fixed + lineText.slice(at + word.text.length);
+      wordCursor = at + fixed.length;
+    }
+    const at = text.indexOf(line.text, cursor);
+    if (at < 0) continue;
+    text = text.slice(0, at) + lineText + text.slice(at + line.text.length);
+    cursor = at + lineText.length;
+  }
+  return text;
 }
 
 function photoRecipeLooksUsable(text) {
@@ -453,7 +568,82 @@ function stripChatChrome(text) {
     });
   if (footer) lines = lines.slice(0, footer[1]);
   // Одиночные значки узора справа от текста: «растопленным      м».
-  return lines.map(line => line.replace(/\s{4,}\S{1,2}\s*$/u, '')).join('\n').trim();
+  return lines.map(line => line.replace(/\s{4,}\S{1,2}\s*$/u, '')
+    // «ьте» в некоторых шрифтах читается как «ыее» или «ысе»; в русском слова так не заканчиваются.
+    .replace(/(\p{L}{2,})(?:ыее|ысе)(?=$|[^\p{L}])/gu, '$1ьте')
+    // «добавые», «оставые», «достаные» — тоже «ьте»; настоящих слов с такими основами нет.
+    .replace(/(^|[^\p{L}])((?:до|у|о|при|вы|от|на|за|под|раз)(?:став|бав|стан))ые(?=$|[^\p{L}])/giu, '$1$2ьте')).join('\n').trim();
+}
+
+const lettersOnly = line => line.toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * Убирает с распознанного скриншота сайта то, что не относится к рецепту:
+ * адрес сайта, строки из одних значков, одиночные значки по краям строк (кнопка «наверх»)
+ * и обрезанную нижнюю строку, от которой остаются заглавные обрывки вроде «К ЭСТ РН ПН МУН».
+ */
+function cleanScreenshotText(text) {
+  const lines = text.split(/\r?\n/).map(line => line
+    .replace(/^\s*[@|+©®°<>=_~*#•^›‹]+(?=\s)/u, '')
+    .replace(/\s+(?=\S*[@|+©®°<>=_~*#•^›‹])[^\p{L}\p{N}\s]{1,3}\s*$/u, '')
+    .replace(/\s+$/u, ''));
+  const kept = lines.filter(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    if (/^\S{2,40}\.(?:ru|ги|com|соm|сот|net|org|рф|info)$/iu.test(trimmed)) return false; // адресная строка
+    return /\p{L}{3}/u.test(trimmed) || /\d/.test(trimmed) && /\p{L}/u.test(trimmed);
+  });
+  while (kept.length && !kept.at(-1).trim()) kept.pop();
+  const last = kept.at(-1)?.trim() || '';
+  const tokens = last.split(/\s+/);
+  const words = tokens.filter(token => /^[«(]?[а-яё]{3,}/u.test(token)).length;
+  if (tokens.length >= 3 && words / tokens.length < 0.34) kept.pop();
+  return kept.join('\n').trim();
+}
+
+/**
+ * Склеивает текст нескольких скриншотов. Если начало следующего скриншота повторяет конец предыдущего
+ * (страницу прокрутили с перекрытием), повтор убирается.
+ */
+function mergeScreenshotTexts(pages) {
+  const similar = (a, b) => {
+    const x = lettersOnly(a), y = lettersOnly(b);
+    if (x.length < 8 || y.length < 8) return false;
+    if (x === y) return true;
+    const longer = x.length >= y.length ? x : y, shorter = longer === x ? y : x;
+    if (shorter.length / longer.length < 0.75) return false;
+    let previous = Array.from({length: shorter.length + 1}, (_, index) => index);
+    for (let i = 1; i <= longer.length; i++) {
+      const current = [i];
+      for (let j = 1; j <= shorter.length; j++) {
+        current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (longer[i - 1] === shorter[j - 1] ? 0 : 1));
+      }
+      previous = current;
+    }
+    return previous[shorter.length] / longer.length <= 0.2;
+  };
+  let merged = [];
+  for (const page of pages) {
+    const next = page.split('\n');
+    const filled = lines => lines.map((line, index) => [line, index]).filter(([line]) => line.trim());
+    const tail = filled(merged).slice(-25);
+    const head = filled(next).slice(0, 25);
+    let cut = 0;
+    search:
+    for (const [tailIndex, [tailLine]] of tail.entries()) {
+      for (const [headIndex, [headLine]] of head.entries()) {
+        if (!similar(tailLine, headLine)) continue;
+        // Совпадение должно продолжаться до самого конца предыдущего скриншота.
+        const rest = tail.slice(tailIndex + 1);
+        if (rest.every(([line], offset) => head[headIndex + 1 + offset] && similar(line, head[headIndex + 1 + offset][0]))) {
+          cut = (head[headIndex + rest.length]?.[1] ?? head[headIndex][1]) + 1;
+          break search;
+        }
+      }
+    }
+    merged = merged.concat(next.slice(cut));
+  }
+  return merged.join('\n').trim();
 }
 
 // Распознаёт одно фото. Страницы многостраничного рецепта распознаются по очереди одним модулем OCR.
@@ -465,12 +655,12 @@ async function recognizePhoto(worker, file, prefix, keepTitle) {
   try {
     await worker.setParameters({tessedit_pageseg_mode: '3'});
     message(prefix + 'распознаю текст на фото…');
-    let text = (await worker.recognize(canvas)).data.text;
+    let text = await recognizeText(worker, canvas);
     let quality = ocrQuality(text);
     message(prefix + 'улучшаю изображение и распознаю повторно…');
     enhanced = enhancedOCRCanvas(canvas);
     await worker.setParameters({tessedit_pageseg_mode: '6'});
-    const retry = (await worker.recognize(enhanced)).data.text;
+    const retry = await recognizeText(worker, enhanced);
     const retryQuality = ocrQuality(retry);
     if (retryQuality >= quality || photoRecipeLooksUsable(retry)) {
       const originalTitle = keepTitle && text.split(/\r?\n/).find(line => line.trim().length > 5);
@@ -481,11 +671,11 @@ async function recognizePhoto(worker, file, prefix, keepTitle) {
     if (!photoRecipeLooksUsable(text)) {
       // Последняя попытка: исходное (не чёрно-белое) изображение в режиме «один блок текста».
       message(prefix + 'пробую другой способ разбора страницы…');
-      const blockText = (await worker.recognize(canvas)).data.text;
+      const blockText = await recognizeText(worker, canvas);
       if (blockText && (photoRecipeLooksUsable(blockText) || ocrQuality(blockText) >= quality)) text = blockText;
     }
     const photo = keepTitle ? await new Promise(resolve => original.toBlob(resolve, 'image/jpeg', 0.88)) : null;
-    return {text: stripChatChrome(text), sourceText, photo};
+    return {text: cleanScreenshotText(stripChatChrome(text)), sourceText, photo};
   } finally {
     if (enhanced) enhanced.width = enhanced.height = 0;
     canvas.width = canvas.height = 0;
@@ -562,7 +752,7 @@ async function recognizePhotos(photos) {
   } finally {
     if (worker) await worker.terminate();
   }
-  const text = pages.map(page => page.trim()).filter(Boolean).join('\n');
+  const text = mergeScreenshotTexts(pages.map(page => page.trim()).filter(Boolean));
   if (!text.trim()) throw new Error('Текст не распознан. Попробуй более чёткое фото или вставь текст вручную.');
   pendingPhoto = photo;
   pendingPhotoPrep = /заготовк[аи]/iu.test(sources.join('\n') + '\n' + text);

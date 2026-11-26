@@ -138,7 +138,7 @@ async function convertPDF(file, { render = true } = {}) {
         canvas.height = Math.ceil(viewport.height);
         try {
           await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-          const data = (await worker.recognize(canvas)).data;
+          const data = { text: await recognizeText(worker, canvas) };
           lines = data.text.split('\n').map((text, i) => ({ text: text.trim(), x: 0, y: i * 16, size: 12, page: number })).filter((l) => l.text);
         } finally {
           canvas.width = canvas.height = 0;

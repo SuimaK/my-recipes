@@ -1,6 +1,6 @@
 // Версия приложения. При каждом выпуске меняется только это число:
 // браузер увидит новый sw.js, заново скачает файлы приложения и удалит старый кэш.
-const VERSION = 29;
+const VERSION = 30;
 
 const cachePrefix = 'recipekeeper-' + self.registration.scope;
 const appCache = cachePrefix + '-v' + VERSION;

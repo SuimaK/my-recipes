@@ -277,3 +277,81 @@ test('копия не содержит миниатюр и снова восст
   assert.match(data.recipes[0].photo, /^data:image\/jpeg;base64,/);
   await page.context().close();
 });
+
+test('по фото: «3» с плоским верхом не читается как «5»', async () => {
+  const page = await freshPage();
+  const result = await page.evaluate(() => {
+    const draw = paint => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 60; canvas.height = 80;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 60, 80);
+      ctx.strokeStyle = ctx.fillStyle = '#333'; ctx.lineWidth = 6;
+      paint(ctx);
+      return looksLikeFlatTopThree(canvas, { x0: 5, y0: 5, x1: 55, y1: 75 });
+    };
+    // «3» с плоским верхом: перекладина, диагональ к середине, нижняя чаша.
+    const flatThree = draw(ctx => {
+      ctx.beginPath(); ctx.moveTo(10, 9); ctx.lineTo(48, 9); ctx.lineTo(26, 34); ctx.stroke();
+      ctx.beginPath(); ctx.arc(30, 52, 18, -Math.PI / 2, Math.PI * 0.85); ctx.stroke();
+    });
+    // «5»: перекладина, вертикальная черта слева, нижняя чаша.
+    const five = draw(ctx => {
+      ctx.beginPath(); ctx.moveTo(48, 9); ctx.lineTo(13, 9); ctx.lineTo(10, 36); ctx.stroke();
+      ctx.beginPath(); ctx.arc(30, 52, 18, -Math.PI * 0.75, Math.PI * 0.85); ctx.stroke();
+    });
+    const fontFive = draw(ctx => { ctx.font = '70px sans-serif'; ctx.textBaseline = 'top'; ctx.fillText('5', 10, 4); });
+    return { flatThree, five, fontFive };
+  });
+  assert.deepEqual(result, { flatThree: true, five: false, fontFive: false });
+  await page.context().close();
+});
+
+test('по фото: два скриншота сайта с номерами шагов в зелёных кружках', { timeout: 300000 }, async () => {
+  const maker = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3 });
+  const circle = n => `<span style="display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:#4aa55a;color:#fff;font-size:17px">${n}</span>`;
+  const step = (n, text) => `<li style="display:flex;gap:14px;margin:0 0 26px">${circle(n)}<span>${text}</span></li>`;
+  await maker.setContent(`<body style="margin:0;font:20px/1.45 sans-serif;color:#333">
+    <header style="position:sticky;top:0;background:#fff;padding:12px 0;text-align:center;box-shadow:0 2px 6px #0002">
+      <span style="display:inline-block;padding:6px 18px;border-radius:20px;background:#f2f2f2;font-size:15px">kashi.ru</span></header>
+    <main style="padding:10px 22px 400px">
+      <h2 style="margin:18px 0">Ингредиенты:</h2>
+      <ul style="padding-left:20px;margin:0 0 20px">
+        <li>Пшено 1 стакан</li><li>Молоко 3 стакана</li><li>Вода 1 стакан</li><li>Сахар 2 ст. л.</li><li>Соль 1 ч. л.</li></ul>
+      <h2>Приготовление:</h2>
+      <ol style="list-style:none;padding:0">
+        ${step(1, 'Промойте пшено в тёплой воде несколько раз.')}
+        ${step(2, 'Залейте пшено водой и доведите до кипения.')}
+        ${step(3, 'Влейте горячее молоко и хорошо перемешайте кашу ложкой.')}
+        ${step(4, 'Добавьте сахар и соль, убавьте огонь до минимума.')}
+        ${step(5, 'Варите кашу под крышкой около двадцати минут.')}
+        ${step(6, 'Снимите кастрюлю с огня и оставьте кашу на десять минут.')}
+      </ol></main>
+    <button style="position:fixed;right:-14px;bottom:60px;width:86px;height:64px;border:0;border-radius:32px 0 0 32px;background:#4aa55a;color:#fff;font-size:34px">↑</button>
+    </body>`);
+  const first = await maker.screenshot({ type: 'png' });
+  // Второй скриншот начинается с шага 3, который уже был внизу первого.
+  await maker.evaluate(() => {
+    const third = document.querySelectorAll('ol li')[2];
+    window.scrollTo(0, third.getBoundingClientRect().top + scrollY - 90);
+  });
+  const second = await maker.screenshot({ type: 'png' });
+  await maker.close();
+
+  const page = await freshPage();
+  await page.click('#add-trigger');
+  await page.click('#open-photo');
+  await page.setInputFiles('#import-photo', [
+    { name: 'site-1.png', mimeType: 'image/png', buffer: first },
+    { name: 'site-2.png', mimeType: 'image/png', buffer: second }]);
+  await page.click('#import-submit');
+  await page.waitForSelector('#ocr-review:not([hidden])', { timeout: 280000 });
+  const text = await page.inputValue('#ocr-review-text');
+  assert.doesNotMatch(text, /kashi|\.ru/, text);
+  assert.match(text, /Молоко 3 стакана/, text);
+  const steps = text.split('Приготовление:')[1].trim().split('\n');
+  assert.deepEqual(steps.map(line => line.slice(0, 3)), ['1. ', '2. ', '3. ', '4. ', '5. ', '6. '], text);
+  assert.equal(text.match(/Влейте горячее молоко/g).length, 1, text);
+  assert.match(steps[5], /оставьте кашу на десять минут\.$/, text);
+  await page.context().close();
+});

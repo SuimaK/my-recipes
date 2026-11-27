@@ -25,6 +25,7 @@ button.danger{color:var(--danger)}
 .tile-meta{display:block;margin-top:7px;color:var(--muted);font-size:.76rem;font-weight:500}
 .empty,#card,form{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
 #card{margin:12px 0}
+#card>.actions{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .recipe-hero{position:relative;display:grid;width:calc(100% + 32px);min-height:210px;aspect-ratio:16/10;margin:-16px -16px 18px;place-items:center;overflow:hidden;border-radius:18px 18px 0 0;background:linear-gradient(145deg,#dfe7d8,#f3e6cf)}
 .photo-open{width:100%;height:100%;min-height:0;padding:0;border-radius:0;background:transparent}
 .photo-open img{display:block;width:100%;height:100%;object-fit:cover}

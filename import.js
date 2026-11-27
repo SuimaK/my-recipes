@@ -413,8 +413,9 @@ function looksLikeFlatTopThree(canvas, {x0, y0, x1, y1}) {
 }
 
 /** Распознаёт изображение и исправляет «5», которые на самом деле «3» с плоским верхом. */
-async function recognizeText(worker, canvas) {
+async function recognizeText(worker, canvas, onData) {
   const {data} = await worker.recognize(canvas, {}, {text: true, blocks: true});
+  onData?.(data);
   let text = data.text;
   let cursor = 0;
   for (const block of data.blocks || []) for (const paragraph of block.paragraphs) for (const line of paragraph.lines) {
@@ -646,8 +647,178 @@ function mergeScreenshotTexts(pages) {
   return merged.join('\n').trim();
 }
 
+// Скриншоты приложений доставки наборов для готовки: экран «Мы привезем» с сеткой продуктов
+// (круглое фото, под ним название и количество) и экраны шагов «Шаг 3/7» с фото сверху и кнопками внизу.
+// Общий разбор страницы путает колонки сетки и не видит светло-серое «Шаг N/M», поэтому
+// такие экраны распознаются отдельно: сетка — по колонкам, шаг — только белая панель с текстом.
+const mealKitMarker = /мы\s*прив[её]з[её]м/iu;
+const mealKitStepCue = /запустить\s*та[йи]мер|шаг\s*\d{1,2}\s*[\/|]\s*\d{1,2}/iu;
+const mealKitQuantity = /^([\dЗзОоOo]{1,5}(?:[.,]\d+)?)\s*(шт|гр|г|кг|мл|л|уп|пачк\p{L}*|упаковк\p{L}*|бут\p{L}*)\.?$/iu;
+
+function mealKitName(line) {
+  return line.replace(/^[^\p{L}\p{N}(]+/u, '').replace(/\.{3}|…/gu, '…')
+    // «(Набор консервов:) Ол…» → «Набор консервов: Ол…»; обрезанное «(Набор свежей зелени:…» — без скобки.
+    .replace(/^\(([^()]{2,40})\)\s*/u, '$1 ').replace(/^\((?=[^)]*$)/u, '').trim();
+}
+
+function looksLikeMealKitName(line, share = 0.6) {
+  // Уточнение в скобках («Мандарин (100-150 г)») не считаем: в нём почти одни цифры.
+  const bare = line.replace(/\([^)]*\)/gu, '');
+  const main = /\p{L}{3}/u.test(bare) ? bare : line;
+  const letters = main.match(/\p{L}/gu) || [];
+  return /\p{L}{3}/u.test(main) && letters.length >= main.replace(/\s/gu, '').length * share &&
+    !mealKitMarker.test(line) && !/^(?:рецепт|назад)$/iu.test(line.replace(/[^\p{L}]/gu, ''));
+}
+
+/** Одна колонка сетки «Мы привезем»: строка с названием, под ней количество («1 шт», «1000 гр»). */
+function parseMealKitColumn(text) {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const items = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const quantity = mealKitQuantity.exec(lines[index + 1] || '');
+    if (quantity && looksLikeMealKitName(line, 0.5)) {
+      const amount = quantity[1].replace(/[Зз]/gu, '3').replace(/[ОоOo]/gu, '0');
+      items.push({name: mealKitName(line), amount, unit: /^гр$/iu.test(quantity[2]) ? 'г' : quantity[2].toLowerCase()});
+      index++;
+    } else if (index === lines.length - 1 && looksLikeMealKitName(line) && line.length >= 6) {
+      // Нижний ряд обрезан краем экрана: название видно, количество — нет.
+      items.push({name: mealKitName(line), amount: '', unit: ''});
+    }
+  }
+  return items;
+}
+
+/** Верхняя граница белой панели с текстом шага (под большим фото). Доля высоты, 0 — если не нашлась. */
+function mealKitPanelTop(canvas) {
+  const {width, height} = canvas;
+  const pixels = canvas.getContext('2d', {willReadFrequently: true}).getImageData(0, 0, width, height).data;
+  const run = Math.max(8, Math.round(height / 200));
+  let start = -1;
+  for (let y = Math.round(height * 0.2); y < height * 0.9; y++) {
+    let light = 0, total = 0;
+    for (let x = 0; x < width; x += 2, total++) {
+      const index = (y * width + x) * 4;
+      if (pixels[index] * .299 + pixels[index + 1] * .587 + pixels[index + 2] * .114 > 230) light++;
+    }
+    // Кнопка микрофона заходит на панель справа, поэтому хватает 80% светлых точек.
+    if (light / total >= 0.8) {
+      if (start < 0) start = y;
+      if (y - start >= run) return Math.max(0, start - 4) / height;
+    } else start = -1;
+  }
+  return 0;
+}
+
+function binarizeCanvas(canvas, threshold) {
+  const ctx = canvas.getContext('2d', {willReadFrequently: true});
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const luma = image.data[index] * .299 + image.data[index + 1] * .587 + image.data[index + 2] * .114;
+    image.data[index] = image.data[index + 1] = image.data[index + 2] = luma < threshold ? 0 : 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+/**
+ * Если фото — экран приложения доставки наборов, распознаёт его по-особому.
+ * Возвращает {mealKit: 'ingredients', title, items} или {mealKit: 'step', number, total, body}, иначе null.
+ */
+async function recognizeMealKitPage(worker, canvas, text, layout, batch, prefix) {
+  if (mealKitMarker.test(text)) {
+    message(prefix + 'распознаю список продуктов…');
+    let top = 0.3;
+    for (const block of layout?.blocks || []) for (const paragraph of block.paragraphs) for (const line of paragraph.lines) {
+      if (mealKitMarker.test(line.text)) top = (line.bbox.y1 + 6) / canvas.height;
+    }
+    const lines = text.split(/\r?\n/).map(line => line.trim());
+    const tabs = lines.findIndex(line => mealKitMarker.test(line));
+    const title = lines.slice(0, tabs).filter(line => /[а-яё]{3}/iu.test(line) && !/^\W*назад\W*$/iu.test(line))
+      .join(' ').replace(/\s+/gu, ' ').trim().slice(0, 160);
+    await worker.setParameters({tessedit_pageseg_mode: '6'});
+    const columns = [];
+    for (const left of [0, 0.5]) {
+      const crop = cropOCRCanvas(canvas, left, top, 0.5, 1 - top);
+      columns.push(parseMealKitColumn((await worker.recognize(crop)).data.text));
+      crop.width = crop.height = 0;
+    }
+    // Порядок как на экране: слева направо, ряд за рядом.
+    const items = [];
+    for (let row = 0; row < Math.max(columns[0].length, columns[1].length); row++) {
+      for (const column of columns) if (column[row]) items.push(column[row]);
+    }
+    return {mealKit: 'ingredients', title, items,
+      text: [title, 'Мы привезем:', ...items.map(mealKitIngredientLine)].filter(Boolean).join('\n')};
+  }
+  if (!batch.mealKit && !mealKitStepCue.test(text)) return null;
+  message(prefix + 'распознаю шаг рецепта…');
+  const top = mealKitPanelTop(canvas);
+  // «Шаг 3/7» набрано светло-серым: после жёсткого порога оно становится чёрным и читается.
+  const crop = binarizeCanvas(cropOCRCanvas(canvas, 0, top, 1, 1 - top), 225);
+  await worker.setParameters({tessedit_pageseg_mode: '6'});
+  const panel = (await worker.recognize(crop)).data.text;
+  crop.width = crop.height = 0;
+  let number = null, total = null;
+  const body = [];
+  for (const raw of panel.split(/\r?\n/)) {
+    const line = raw.trim();
+    const step = /^\W{0,3}шаг\s*(\d{1,2})(?:\s*[\/|]\s*(\d{1,2}))?/iu.exec(line);
+    if (step && number == null) {
+      // Всё, что выше «Шаг N/M», — край фото.
+      number = +step[1]; total = step[2] ? +step[2] : null; body.length = 0; continue;
+    }
+    if (/запустить\s*та[йи]мер|^\W*назад\W*$/iu.test(line) || !/\p{L}{3}/u.test(line)) continue;
+    // Обрывки от края фото над текстом: короткие строки до начала самого шага.
+    if (!body.length && line.replace(/[^\p{L}\p{N}]/gu, '').length < 10) continue;
+    body.push(line.replace(/^[^\p{L}\p{N}«(]+/u, ''));
+  }
+  const joined = body.join(' ').replace(/\s+/gu, ' ').trim();
+  if (joined.length < 20) return null;
+  return {mealKit: 'step', number, total, body: joined, text: (number ? 'Шаг ' + number + '\n' : '') + joined};
+}
+
+function mealKitIngredientLine(item) {
+  return item.amount ? item.name + ' — ' + item.amount + ' ' + item.unit : item.name;
+}
+
+/** Собирает рецепт из распознанных экранов: название, продукты без повторов, шаги по номерам. */
+function mealKitRecipeText(pages) {
+  const title = pages.find(page => page.mealKit === 'ingredients' && page.title)?.title || '';
+  const ingredients = [];
+  const seen = new Set();
+  for (const page of pages) for (const item of page.mealKit === 'ingredients' ? page.items : []) {
+    const key = lettersOnly(item.name);
+    const same = ingredients.find(other => lettersOnly(other.name) === key);
+    if (same) { if (!same.amount && item.amount) Object.assign(same, item); continue; }
+    if (!seen.has(key)) { seen.add(key); ingredients.push({...item}); }
+  }
+  const steps = pages.filter(page => page.mealKit === 'step').map(page => ({...page}));
+  // Номер не всегда читается: берём его от соседнего шага, а если номеров нет совсем — по порядку фото.
+  for (let index = 1; index < steps.length; index++) {
+    if (steps[index].number == null && steps[index - 1].number != null) steps[index].number = steps[index - 1].number + 1;
+  }
+  for (let index = steps.length - 2; index >= 0; index--) {
+    if (steps[index].number == null && steps[index + 1].number != null) steps[index].number = Math.max(1, steps[index + 1].number - 1);
+  }
+  steps.forEach((step, index) => { if (step.number == null) step.number = index + 1; });
+  const unique = [];
+  for (const step of steps.sort((a, b) => a.number - b.number)) {
+    const same = unique.find(other => other.number === step.number);
+    if (!same) unique.push(step);
+    else if (step.body.length > same.body.length) same.body = step.body;
+  }
+  if (!ingredients.length && !unique.length) return {text: '', missing: []};
+  const total = Math.max(0, ...steps.map(step => step.total || 0));
+  const missing = [];
+  for (let number = 1; number <= total; number++) if (!unique.some(step => step.number === number)) missing.push(number);
+  const text = [title, 'Ингредиенты:', ...ingredients.map(mealKitIngredientLine),
+    'Приготовление:', ...unique.map(step => step.number + '. ' + step.body)].filter(Boolean).join('\n');
+  return {text, missing};
+}
+
 // Распознаёт одно фото. Страницы многостраничного рецепта распознаются по очереди одним модулем OCR.
-async function recognizePhoto(worker, file, prefix, keepTitle) {
+async function recognizePhoto(worker, file, prefix, keepTitle, batch = {}) {
   message(prefix + 'подготавливаю фото к распознаванию…');
   const original = await imageCanvas(file);
   const canvas = normalizedOCRCanvas(original);
@@ -655,7 +826,13 @@ async function recognizePhoto(worker, file, prefix, keepTitle) {
   try {
     await worker.setParameters({tessedit_pageseg_mode: '3'});
     message(prefix + 'распознаю текст на фото…');
-    let text = await recognizeText(worker, canvas);
+    let layout;
+    let text = await recognizeText(worker, canvas, data => { layout = data; });
+    const mealKit = await recognizeMealKitPage(worker, canvas, text, layout, batch, prefix);
+    if (mealKit) {
+      const photo = keepTitle ? await new Promise(resolve => original.toBlob(resolve, 'image/jpeg', 0.88)) : null;
+      return {...mealKit, sourceText: text, photo};
+    }
     let quality = ocrQuality(text);
     message(prefix + 'улучшаю изображение и распознаю повторно…');
     enhanced = enhancedOCRCanvas(canvas);
@@ -737,6 +914,8 @@ async function recognizePhotos(photos) {
   if (photos.length > maxPhotos) throw new Error('Можно выбрать до ' + maxPhotos + ' фото за раз.');
   const pages = [];
   const sources = [];
+  const mealKitPages = [];
+  const batch = {mealKit: false};
   let photo;
   let worker;
   try {
@@ -744,7 +923,9 @@ async function recognizePhotos(photos) {
     worker = await createOCR();
     for (const [index, source] of photos.entries()) {
       const prefix = photos.length > 1 ? 'Фото ' + (index + 1) + ' из ' + photos.length + ': ' : '';
-      const page = await recognizePhoto(worker, source, prefix, index === 0);
+      const page = await recognizePhoto(worker, source, prefix, index === 0, batch);
+      if (page.mealKit) batch.mealKit = true;
+      mealKitPages.push(page);
       pages.push(page.text);
       sources.push(page.sourceText);
       if (index === 0) photo = page.photo;
@@ -752,17 +933,20 @@ async function recognizePhotos(photos) {
   } finally {
     if (worker) await worker.terminate();
   }
-  const text = mergeScreenshotTexts(pages.map(page => page.trim()).filter(Boolean));
+  const mealKit = batch.mealKit ? mealKitRecipeText(mealKitPages) : {text: '', missing: []};
+  const mealKitText = mealKit.text;
+  const text = mealKitText || mergeScreenshotTexts(pages.map(page => page.trim()).filter(Boolean));
   if (!text.trim()) throw new Error('Текст не распознан. Попробуй более чёткое фото или вставь текст вручную.');
   pendingPhoto = photo;
   pendingPhotoPrep = /заготовк[аи]/iu.test(sources.join('\n') + '\n' + text);
   byId('ocr-raw').textContent = photos.length > 1
     ? pages.map((page, index) => '— Фото ' + (index + 1) + ' (' + photos[index].name + ') —\n' + page.trim()).join('\n\n')
     : text;
-  byId('ocr-review-text').value = preparePhotoRecipeText(text);
+  byId('ocr-review-text').value = mealKitText || preparePhotoRecipeText(text);
   byId('ocr-review').hidden = false;
   message((photos.length > 1 ? 'Текст с ' + photos.length + ' фото объединён. ' : 'Текст распознан. ')
-    + 'Проверь его перед созданием рецепта: особенно количества и конец инструкции.');
+    + 'Проверь его перед созданием рецепта: особенно количества и конец инструкции.'
+    + (mealKit.missing.length ? ' Нет скриншотов шагов: ' + mealKit.missing.join(', ') + '.' : ''));
 }
 
 async function importPastedText(text) {

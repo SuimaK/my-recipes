@@ -355,3 +355,64 @@ test('по фото: два скриншота сайта с номерами ш
   assert.match(steps[5], /оставьте кашу на десять минут\.$/, text);
   await page.context().close();
 });
+
+test('по фото: экраны приложения доставки — «Мы привезем» и «Шаг N/M»', { timeout: 300000 }, async () => {
+  const maker = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3 });
+  const cell = (color, name, qty) => `<div style="text-align:center;margin-bottom:34px">
+    <div style="width:138px;height:138px;margin:0 auto 14px;border-radius:50%;background:radial-gradient(circle,${color} 45%,#fff 47%)"></div>
+    <div style="font-size:16px;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+    <div style="font-size:16px;color:#555;margin-top:6px">${qty}</div></div>`;
+  await maker.setContent(`<body style="margin:0;font-family:sans-serif;background:#f6f6f6">
+    <div style="background:#fff;padding:60px 16px 14px"><div style="color:#888;font-size:17px;margin-bottom:28px">‹ Назад</div>
+      <div style="font-size:19px;line-height:1.3;color:#111">Курица запечённая с картофелем<br>и сливочным соусом</div></div>
+    <div style="display:flex;justify-content:flex-end;gap:60px;padding:16px 40px;background:#fff;border-top:1px solid #ddd;border-bottom:1px solid #ddd;font-size:15px">
+      <b>Мы привезем</b><span style="color:#999">Рецепт</span></div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px;padding:24px 14px">
+      ${cell('#e8c07a', 'Курица тушка охлаждённая для запекания', '1 шт')}
+      ${cell('#d9b45a', 'Картофель свежий', '800 гр')}
+      ${cell('#f0ead8', 'Соус сливочный (150 г)', '2 шт')}
+      ${cell('#9c2a3a', 'Лук красный', '1 шт')}
+    </div></body>`);
+  const ingredients = await maker.screenshot({ type: 'png' });
+  const stepScreen = async (n, text, timer) => {
+    await maker.setContent(`<body style="margin:0;font-family:sans-serif;background:#fff">
+      <div style="height:420px;background:linear-gradient(135deg,#6b4a2b,#a57a4f 40%,#4d3420)"></div>
+      <div style="position:absolute;top:392px;right:14px;width:54px;height:54px;border-radius:50%;border:2px solid #4a9a5a;background:#fff"></div>
+      <div style="padding:14px 16px;font-size:16px;line-height:1.45;color:#222">
+        <div style="color:#aaa;margin-bottom:10px">Шаг ${n}<span style="color:#ddd">/2</span></div>${text}</div>
+      <div style="position:absolute;bottom:60px;left:0;right:0;display:flex;justify-content:space-between;align-items:center">
+        <span style="width:60px;height:52px;border:1px solid #4a9a5a;border-radius:0 26px 26px 0;color:#4a9a5a;font-size:24px;text-align:center">←</span>
+        ${timer ? '<span style="padding:14px 34px;border:1px solid #4a9a5a;border-radius:26px;color:#4a9a5a;font-size:14px">ЗАПУСТИТЬ ТАЙМЕР</span>' : ''}
+        <span style="width:60px;height:52px;background:#4a9a5a;border-radius:26px 0 0 26px;color:#fff;font-size:24px;text-align:center">→</span></div></body>`);
+    return maker.screenshot({ type: 'png' });
+  };
+  const first = await stepScreen(1, 'Картофель и лук очистите. Картофель нарежьте крупными ломтиками, лук — дольками. Посолите и перемешайте.', false);
+  const second = await stepScreen(2, 'Курицу натрите солью, выложите на противень вместе с овощами и запекайте в духовке 60 минут при 190°С.', true);
+  await maker.close();
+
+  const page = await freshPage();
+  await page.click('#add-trigger');
+  await page.click('#open-photo');
+  await page.setInputFiles('#import-photo', [
+    { name: 'kit-1.png', mimeType: 'image/png', buffer: ingredients },
+    { name: 'kit-2.png', mimeType: 'image/png', buffer: first },
+    { name: 'kit-3.png', mimeType: 'image/png', buffer: second }]);
+  await page.click('#import-submit');
+  await page.waitForSelector('#ocr-review:not([hidden])', { timeout: 280000 });
+  const text = await page.inputValue('#ocr-review-text');
+  const [head, method] = text.split('Приготовление:\n');
+  assert.equal(head.split('\n')[0], 'Курица запечённая с картофелем и сливочным соусом', text);
+  assert.doesNotMatch(text, /Назад|Мы привезем|Рецепт\b|ТАЙМЕР|Шаг/, text);
+  assert.match(head, /^Картофель свежий — 800 г$/m, text);
+  assert.match(head, /^Соус сливочный \(150 г\) — 2 шт$/m, text);
+  assert.match(head, /^Лук красный — 1 шт$/m, text);
+  assert.match(head, /^Курица тушка .*— 1 шт$/m, text);
+  const steps = method.trim().split('\n');
+  assert.equal(steps.length, 2, text);
+  assert.match(steps[0], /^1\. Картофель и лук очистите\..*перемешайте\.$/, text);
+  assert.match(steps[1], /^2\. Курицу натрите солью.*190°С\.$/, text);
+  await page.click('#ocr-create');
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.equal(await page.inputValue('[name=title]'), 'Курица запечённая с картофелем и сливочным соусом');
+  await page.context().close();
+});

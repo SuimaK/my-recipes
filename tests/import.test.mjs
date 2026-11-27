@@ -269,3 +269,20 @@ test('по фото: скриншоты чата в тёмной теме с у�
 });
 
 test('в консоли нет ошибок', () => assert.deepEqual(errors, []));
+
+test('текст с экранов приложения доставки («Мы привезем», «Шаг N/M») становится рецептом', async () => {
+  const page = await freshPage();
+  await openMode(page, '#open-text');
+  await page.fill('#import-text', ['Назад', 'Курица запечённая с картофелем', 'и сливочным соусом', 'Мы привезем', 'Рецепт',
+    'Курица тушка охлаждён...', '1 шт', 'Картофель свежий', '800 гр', 'Соус сливочный (150 г)', '2 шт',
+    'Шаг 2/3', 'Курицу натрите солью и запекайте', '60 минут.', 'ЗАПУСТИТЬ ТАЙМЕР',
+    'Шаг 1/3', 'Картофель очистите и нарежьте ломтиками.'].join('\n'));
+  await page.click('#import-submit');
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.equal(await page.inputValue('[name=title]'), 'Курица запечённая с картофелем и сливочным соусом');
+  const rows = await page.$$eval('#editor input:not([name])', els => els.map(e => e.value).filter(Boolean));
+  assert.deepEqual(rows, ['Курица тушка охлаждён…', '1', 'шт', 'Картофель свежий', '800', 'г', 'Соус сливочный (150 г)', '2', 'шт']);
+  assert.equal(await page.inputValue('[name=instructions]'),
+    '1. Картофель очистите и нарежьте ломтиками.\n2. Курицу натрите солью и запекайте 60 минут.');
+  await page.context().close();
+});

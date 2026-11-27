@@ -78,6 +78,8 @@ function recipeTextLooksUsable(text) {
 
 /** Текст или сборник → черновики {page, text, source}. */
 function textDrafts(text, source) {
+  // Текст с экранов приложения доставки наборов сначала приводится к обычному виду рецепта.
+  text = mealKitPlainText(text) || text;
   return splitRecipeText(text).map(expandInlineIngredients).filter(recipeTextLooksUsable)
     .map((draft, index) => ({page: index + 1, text: draft, source}));
 }

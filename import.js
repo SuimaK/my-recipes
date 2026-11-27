@@ -817,6 +817,52 @@ function mealKitRecipeText(pages) {
   return {text, missing};
 }
 
+/**
+ * Текст, скопированный (или распознанный) с экранов приложения доставки наборов:
+ * «Мы привезем», под ним пары «название / 1 шт», затем «Шаг 3/7» и текст шага.
+ * Переводит его в обычный вид «Название / Ингредиенты: / Приготовление:». Если это не такой текст — ''.
+ */
+function mealKitPlainText(text) {
+  const lines = text.replace(/ /g, ' ').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const stepHeader = /^\W{0,3}шаг\s*(\d{1,2})\s*(?:[\/|из]+\s*\d{1,2})?\s*[:.]?\s*(.*)$/iu;
+  const marker = lines.findIndex(line => mealKitMarker.test(line));
+  if (marker < 0 && lines.filter(line => /^\W{0,3}шаг\s*\d{1,2}\s*[\/|]\s*\d{1,2}/iu.test(line)).length < 2) return '';
+  const chrome = line => /^\W*(?:назад|рецепт|запустить\s*та[йи]мер)\W*$/iu.test(line) || mealKitMarker.test(line);
+  const firstStep = lines.findIndex(line => stepHeader.test(line));
+  const headEnd = marker >= 0 ? marker : firstStep;
+  const title = lines.slice(0, headEnd).filter(line => !chrome(line) && /\p{L}{3}/u.test(line)).join(' ').slice(0, 160);
+  const ingredients = [];
+  if (marker >= 0) {
+    const block = lines.slice(marker + 1, firstStep > marker ? firstStep : lines.length);
+    for (let index = 0; index < block.length; index++) {
+      const line = block[index];
+      if (chrome(line)) continue;
+      const quantity = mealKitQuantity.exec(block[index + 1] || '');
+      if (quantity && !mealKitQuantity.test(line)) {
+        const amount = quantity[1].replace(/[Зз]/gu, '3').replace(/[ОоOo]/gu, '0');
+        ingredients.push(mealKitIngredientLine({name: mealKitName(line), amount,
+          unit: /^гр$/iu.test(quantity[2]) ? 'г' : quantity[2].toLowerCase()}));
+        index++;
+      } else if (/\p{L}{3}/u.test(line) && !mealKitQuantity.test(line)) {
+        ingredients.push(mealKitName(line).replace(/(\d)\s*гр\.?$/u, '$1 г'));
+      }
+    }
+  }
+  const steps = [];
+  let current = null;
+  for (const line of firstStep >= 0 ? lines.slice(firstStep) : []) {
+    const header = stepHeader.exec(line);
+    if (header) {
+      current = {number: +header[1], text: header[2] || ''};
+      steps.push(current);
+    } else if (current && !chrome(line)) current.text += (current.text ? ' ' : '') + line;
+  }
+  const method = steps.filter(step => step.text.trim()).sort((a, b) => a.number - b.number)
+    .map(step => step.number + '. ' + step.text.trim());
+  if (!ingredients.length && !method.length) return '';
+  return [title, 'Ингредиенты:', ...ingredients, 'Приготовление:', ...method].filter(Boolean).join('\n');
+}
+
 // Распознаёт одно фото. Страницы многостраничного рецепта распознаются по очереди одним модулем OCR.
 async function recognizePhoto(worker, file, prefix, keepTitle, batch = {}) {
   message(prefix + 'подготавливаю фото к распознаванию…');
